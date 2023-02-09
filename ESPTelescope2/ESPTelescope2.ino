@@ -58,8 +58,10 @@ float realYSpeed = 0;
 //float lastXSpeed = 0;
 //float lastYSpeed = 0;
 
-const int gearRatio = 15;
-const double rotationDegrees = 1.8 / (26 + (103/121)); //degrees / steps per rev / gearbox
+const double azGearRatio = 15 * 1.04415; //300 / 20 teeth * fudge factors
+const double altGearRatio = 15 * 1.03845; //300 / 20 teeth * fudge factors
+
+const double rotationDegrees = 1.8 / (26 + (103/121)); //360 (degrees) / 200 (steps per rev) / gearbox
 const float maxMotorSpeed = 3000; //because of the gear box
 int stepperSpeed = 3;
 int lastStepperSpeed = 0;
@@ -467,8 +469,8 @@ void communication(Stream &aSerial)
 
     //report AZ
     if (input[1] == 'G' && input[2] == 'R') {
-      float totalAz = addSteps(-1*xStepper.currentPosition(), currentAz);
-      float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt);
+      float totalAz = addSteps(-1*xStepper.currentPosition(), currentAz, azGearRatio);
+      float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, altGearRatio);
       
       myAstro.setAltAz(totalAlt, totalAz);
       myAstro.doAltAz2RAdec();
@@ -481,8 +483,8 @@ void communication(Stream &aSerial)
   
     if (input[1] == 'G' && input[2] == 'D') {
 
-      float totalAz  = addSteps(-1*xStepper.currentPosition(), currentAz);
-      float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt);
+      float totalAz  = addSteps(-1*xStepper.currentPosition(), currentAz, azGearRatio);
+      float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, altGearRatio);
 
       myAstro.setAltAz(totalAlt, totalAz);
       myAstro.doAltAz2RAdec();
@@ -683,8 +685,8 @@ void slewMode(){
   targetAlt = myAstro.getAltitude();
   targetAz = myAstro.getAzimuth();
   
-  float totalAz  = addSteps(-1*xStepper.currentPosition(), currentAz);
-  float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt);
+  float totalAz  = addSteps(-1*xStepper.currentPosition(), currentAz, azGearRatio);
+  float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, altGearRatio);
   
   double remainingAlt = targetAlt - totalAlt;
   double remainingAz;
@@ -697,7 +699,8 @@ void slewMode(){
     remainingAz = targetAz - totalAz;
   }
   
-  double minStep = ((rotationDegrees)/gearRatio)/32;
+  double azMinStep = ((rotationDegrees)/azGearRatio)/32;
+  double altMinStep = ((rotationDegrees)/altGearRatio)/32;
   bool moveAz = false;
   bool moveAlt = false;
   float moveSpeed = 0;
@@ -706,14 +709,14 @@ void slewMode(){
 
       if(
           abs(remainingAz) > (stepperSpeed) &&
-          abs(remainingAz) > minStep
+          abs(remainingAz) > azMinStep
       ){
           moveAz = true;
       }
 
       if(
           abs(remainingAlt) > (stepperSpeed) &&
-          abs(remainingAlt) > minStep
+          abs(remainingAlt) > altMinStep
       ){
         moveAlt = true;
       }
@@ -1151,7 +1154,7 @@ void readJoystickAndMove(){
   
 }
 
-float addSteps(int steps, float inDegrees){
+float addSteps(int steps, float inDegrees, double gearRatio){
   float fSteps = float(steps);
   //fSteps = -1 * fSteps;
   float degree = ((fSteps * rotationDegrees)/gearRatio)/stepperDivider;
@@ -1169,10 +1172,10 @@ float addSteps(int steps, float inDegrees){
 }
 
 void setCurrentPositions(){
-  currentAz = addSteps(-1*xStepper.currentPosition(), currentAz);
+  currentAz = addSteps(-1*xStepper.currentPosition(), currentAz, azGearRatio);
   xStepper.setCurrentPosition(0);
   
-  currentAlt = addSteps(-1*yStepper.currentPosition(), currentAlt);
+  currentAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, altGearRatio);
   yStepper.setCurrentPosition(0);
 }
 
@@ -1320,8 +1323,8 @@ void doTrack(){
 
   if(millis() - lastTrack > 1000){
 
-    float totalAz = addSteps(-1*xStepper.currentPosition(), currentAz);
-    float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt);
+    float totalAz = addSteps(-1*xStepper.currentPosition(), currentAz, azGearRatio);
+    float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, altGearRatio);
     
     myAstro.setAltAz(totalAlt, totalAz);
     myAstro.doAltAz2RAdec();
@@ -1358,8 +1361,8 @@ void doTrack(){
     }else{
       azRate = (maxAz - minAz)/20;
     }
-    double trackXSpeed = -1*(azRate * stepperDivider * gearRatio)/rotationDegrees;
-    double trackYSpeed = -1*(((maxAlt - minAlt)/20) * stepperDivider * gearRatio)/rotationDegrees;
+    double trackXSpeed = -1*(azRate * stepperDivider * azGearRatio)/rotationDegrees;
+    double trackYSpeed = -1*(((maxAlt - minAlt)/20) * stepperDivider * altGearRatio)/rotationDegrees;
     
     setXSpeed(trackXSpeed);
     setYSpeed(trackYSpeed);
