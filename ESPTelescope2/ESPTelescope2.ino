@@ -58,8 +58,8 @@ float realYSpeed = 0;
 //float lastXSpeed = 0;
 //float lastYSpeed = 0;
 
-const double azGearRatio = 15 * 1.0441; //300 / 20 teeth * fudge factors
-const double altGearRatio = 15 * 1.0384; //300 / 20 teeth * fudge factors
+const double azGearRatio  = 15 * 1.041000; //300 / 20 teeth * fudge factors
+const double altGearRatio = 15 * 1.035500; //300 / 20 teeth * fudge factors
 
 const double rotationDegrees = 1.8 / (26 + (103/121)); //360 (degrees) / 200 (steps per rev) / gearbox
 const float maxMotorSpeed = 3000; //because of the gear box
