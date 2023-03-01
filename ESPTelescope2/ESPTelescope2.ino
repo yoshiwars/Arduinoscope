@@ -1068,6 +1068,7 @@ void movementButtonControl(){
               display.printFixed(60,  32, "Enabled ", STYLE_NORMAL);  
               tracking = true;
             }
+            break;
           case 4:
             //GPS Mode
             screenMode = 0;
