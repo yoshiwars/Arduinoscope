@@ -21,6 +21,8 @@ SiderealPlanets myAstro;
 
 // Stepper Motor mode
 const int MotorInterfaceType = 1;
+// Focuser Motor Mode
+const int FocuserMotorMode = 8;
 
 //Shift for motorspeeds
 int latchPin = 5;   //Pin connected to ST_CP of 74HC595
@@ -46,22 +48,31 @@ const int pinX = 35;
 
 const int analogResolution = 4095;
 
+//Focuser Setup
+const int focusPin1 = 2;
+const int focusPin2 = 4;
+const int focusPin3 = 15;
+const int focusPin4 = 23;
+const int maxFocusSpeed = 2048;
+int focusSpeed = 0;
+
 AccelStepper yStepper = AccelStepper(MotorInterfaceType,yStep,yDir);
 AccelStepper xStepper = AccelStepper(MotorInterfaceType,xStep,xDir);
+AccelStepper focuser = AccelStepper(FocuserMotorMode, focusPin1, focusPin3, focusPin2, focusPin4);
 
 float xSpeed = 0;
 float ySpeed = 0;
+float fSpeed = 0;
 
 float realXSpeed = 0;
 float realYSpeed = 0;
+float realFSpeed = 0;
 
 //float lastXSpeed = 0;
 //float lastYSpeed = 0;
 
-const double azGearRatio  = 15 * 1.041000; //300 / 20 teeth * fudge factors
-const double altGearRatio = 15 * 1.035500; //300 / 20 teeth * fudge factors
-
-const double rotationDegrees = 1.8 / (26 + (103/121)); //360 (degrees) / 200 (steps per rev) / gearbox
+const int gearRatio = 15;
+const double rotationDegrees = 1.8 / (26 + (103/121)); //degrees / steps per rev / gearbox
 const float maxMotorSpeed = 3000; //because of the gear box
 int stepperSpeed = 3;
 int lastStepperSpeed = 0;
@@ -75,9 +86,10 @@ int screenMode = 0;
 const char *movementMenuItems[] = 
 {
   "Move:",
+  "Focus:",
   "Speed:",
-  "Info",
-  "Tracking"  
+  "Tracking",
+  "Info"
 };
 
 LcdGfxMenu movementMenu(movementMenuItems, sizeof(movementMenuItems) / sizeof(char *) );
@@ -98,6 +110,8 @@ bool yMoving = false;
 bool yLastMoving = false;
 bool xMoving = false;
 bool xLastMoving = false;
+
+bool focusing = false;
 
 //communication
 const byte numChars = 32;
@@ -208,6 +222,8 @@ void setup() {
   xStepper.setMaxSpeed(maxMotorSpeed);
   xStepper.setCurrentPosition(0);
 
+  focuser.setMaxSpeed(maxFocusSpeed);
+
   //set up and display movement menu
   screenMode = 0;
   showInfo();  
@@ -227,12 +243,20 @@ void loop() {
     case 1:
       //Main Screen
       movementButtonControl();
-      if(!moving){
+      if(!moving && !focusing){
         menuControl();
         
-      }else{
+      }
+      
+      if(moving){
         //move if in move mode
         readJoystickAndMove();  
+      }
+
+      if(focusing){
+        //Focusing Mode
+        readJoystickAndFocus();
+        
       }
       break;
     case 2:
@@ -264,6 +288,7 @@ void loop() {
   setStepperSpeed();
 
   accelerateMove();
+  accelerateFocus();
 
   /*
   if(lastXSpeed != xSpeed){
@@ -275,6 +300,27 @@ void loop() {
   }
     */
 }
+
+void accelerateFocus(){
+
+  if(abs(realFSpeed - fSpeed)> 1){
+    if(realFSpeed < fSpeed){
+      realFSpeed++;
+    }else if (realFSpeed > fSpeed){
+      realFSpeed--;
+    }  
+  }else{
+    realFSpeed = fSpeed;
+  }
+  
+  focuser.setSpeed(realFSpeed);
+  
+  focuser.runSpeed();
+  
+}
+
+
+
 
 void accelerateMove(){
 
@@ -469,8 +515,8 @@ void communication(Stream &aSerial)
 
     //report AZ
     if (input[1] == 'G' && input[2] == 'R') {
-      float totalAz = addSteps(-1*xStepper.currentPosition(), currentAz, azGearRatio);
-      float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, altGearRatio);
+      float totalAz = addSteps(-1*xStepper.currentPosition(), currentAz);
+      float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt);
       
       myAstro.setAltAz(totalAlt, totalAz);
       myAstro.doAltAz2RAdec();
@@ -483,8 +529,8 @@ void communication(Stream &aSerial)
   
     if (input[1] == 'G' && input[2] == 'D') {
 
-      float totalAz  = addSteps(-1*xStepper.currentPosition(), currentAz, azGearRatio);
-      float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, altGearRatio);
+      float totalAz  = addSteps(-1*xStepper.currentPosition(), currentAz);
+      float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt);
 
       myAstro.setAltAz(totalAlt, totalAz);
       myAstro.doAltAz2RAdec();
@@ -685,8 +731,8 @@ void slewMode(){
   targetAlt = myAstro.getAltitude();
   targetAz = myAstro.getAzimuth();
   
-  float totalAz  = addSteps(-1*xStepper.currentPosition(), currentAz, azGearRatio);
-  float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, altGearRatio);
+  float totalAz  = addSteps(-1*xStepper.currentPosition(), currentAz);
+  float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt);
   
   double remainingAlt = targetAlt - totalAlt;
   double remainingAz;
@@ -699,8 +745,7 @@ void slewMode(){
     remainingAz = targetAz - totalAz;
   }
   
-  double azMinStep = ((rotationDegrees)/azGearRatio)/32;
-  double altMinStep = ((rotationDegrees)/altGearRatio)/32;
+  double minStep = ((rotationDegrees)/gearRatio)/32;
   bool moveAz = false;
   bool moveAlt = false;
   float moveSpeed = 0;
@@ -709,14 +754,14 @@ void slewMode(){
 
       if(
           abs(remainingAz) > (stepperSpeed) &&
-          abs(remainingAz) > azMinStep
+          abs(remainingAz) > minStep
       ){
           moveAz = true;
       }
 
       if(
           abs(remainingAlt) > (stepperSpeed) &&
-          abs(remainingAlt) > altMinStep
+          abs(remainingAlt) > minStep
       ){
         moveAlt = true;
       }
@@ -967,6 +1012,7 @@ void returnToMainMenu(){
   screenMode = 1;
   movementMenu.show( display );
   display.printFixed(55,  8, "Disabled", STYLE_NORMAL);
+  display.printFixed(55,  16, "Disabled", STYLE_NORMAL);
 }
 
 void movementButtonControl(){
@@ -1003,11 +1049,16 @@ void movementButtonControl(){
               isTracking = false;
             }
             break;
-          case 2:
-            //GPS Mode
-            screenMode = 0;
-            showInfo();
+          case 1:
+            if(focusing){
+              focusing = false;
+              display.printFixed(55,  16, "Disabled", STYLE_NORMAL);
+            }else{
+              display.printFixed(55,  16, "Enabled ", STYLE_NORMAL);
+              focusing = true;
+            }
             break;
+          
           case 3:
             //Set Tracking
             if(tracking){
@@ -1017,6 +1068,11 @@ void movementButtonControl(){
               display.printFixed(60,  32, "Enabled ", STYLE_NORMAL);  
               tracking = true;
             }
+          case 4:
+            //GPS Mode
+            screenMode = 0;
+            showInfo();
+            break;
         }
       }
     }
@@ -1029,14 +1085,14 @@ void menuControl(){
   int inY = analogRead(pinY);
   int y = 0;
 
-  if(inY < 80){
+  if(inY < 120){
     
     y = -1;
   }
-  if(inY >= 80 && inY <= (analogResolution - 80)){
+  if(inY >= 120 && inY <= (analogResolution - 120)){
     y = 0;
   }
-  if(inY > (analogResolution - 80)){
+  if(inY > (analogResolution - 120)){
     
     y = 1;
   }  
@@ -1065,13 +1121,13 @@ void menuControl(){
   int inX = analogRead(pinX);
   int x = 0;
 
-  if(inX < 80){
+  if(inX < 120){
     x = -1;
   }
-  if(inX >= 80 && inX <= (analogResolution - 80)){
+  if(inX >= 120 && inX <= (analogResolution - 120)){
     x = 0;
   }
-  if(inX > (analogResolution - 80)){
+  if(inX > (analogResolution - 120)){
     x = 1;
   }  
   
@@ -1085,7 +1141,8 @@ void menuControl(){
       xState = x;
      
       switch(movementMenu.selection()){
-        case 1:
+        //Set StepperSpeed
+        case 2:
           isTracking = false;
           stepperSpeed += x;
           if(stepperSpeed < 0){
@@ -1101,6 +1158,35 @@ void menuControl(){
   }
   lastXState = x;
 }
+
+void readJoystickAndFocus(){
+  
+  int x = map(analogRead(pinX), 0, analogResolution, -512, 512);
+
+  int aXSpeed = 0;
+  
+  if(x > xDeadZone + 50){
+    //Top Speed: 1000?
+    aXSpeed = map(x, (xDeadZone + 50), 512, 0, maxFocusSpeed);
+    xMoving = true;    
+  }else if(x < xDeadZone - 50){
+    //Top Speed: 1000?
+    aXSpeed = map(x, (xDeadZone - 50),-512,0, -maxFocusSpeed);
+    xMoving = true;
+  }else{
+    xMoving = false;
+  }
+
+  if(xMoving){
+    setFSpeed(aXSpeed);
+  }else{
+    setFSpeed(0);
+  }
+
+  xLastMoving = xMoving;
+  
+}
+
 
 void readJoystickAndMove(){
   int y = map(analogRead(pinY), 0, analogResolution, -512, 512);
@@ -1154,7 +1240,7 @@ void readJoystickAndMove(){
   
 }
 
-float addSteps(int steps, float inDegrees, double gearRatio){
+float addSteps(int steps, float inDegrees){
   float fSteps = float(steps);
   //fSteps = -1 * fSteps;
   float degree = ((fSteps * rotationDegrees)/gearRatio)/stepperDivider;
@@ -1172,10 +1258,10 @@ float addSteps(int steps, float inDegrees, double gearRatio){
 }
 
 void setCurrentPositions(){
-  currentAz = addSteps(-1*xStepper.currentPosition(), currentAz, azGearRatio);
+  currentAz = addSteps(-1*xStepper.currentPosition(), currentAz);
   xStepper.setCurrentPosition(0);
   
-  currentAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, altGearRatio);
+  currentAlt = addSteps(-1*yStepper.currentPosition(), currentAlt);
   yStepper.setCurrentPosition(0);
 }
 
@@ -1323,8 +1409,8 @@ void doTrack(){
 
   if(millis() - lastTrack > 1000){
 
-    float totalAz = addSteps(-1*xStepper.currentPosition(), currentAz, azGearRatio);
-    float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, altGearRatio);
+    float totalAz = addSteps(-1*xStepper.currentPosition(), currentAz);
+    float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt);
     
     myAstro.setAltAz(totalAlt, totalAz);
     myAstro.doAltAz2RAdec();
@@ -1361,8 +1447,8 @@ void doTrack(){
     }else{
       azRate = (maxAz - minAz)/20;
     }
-    double trackXSpeed = -1*(azRate * stepperDivider * azGearRatio)/rotationDegrees;
-    double trackYSpeed = -1*(((maxAlt - minAlt)/20) * stepperDivider * altGearRatio)/rotationDegrees;
+    double trackXSpeed = -1*(azRate * stepperDivider * gearRatio)/rotationDegrees;
+    double trackYSpeed = -1*(((maxAlt - minAlt)/20) * stepperDivider * gearRatio)/rotationDegrees;
     
     setXSpeed(trackXSpeed);
     setYSpeed(trackYSpeed);
@@ -1383,6 +1469,11 @@ void setXSpeed(float inSpeed){
 
 void setYSpeed(float inSpeed){
   ySpeed = inSpeed;
+  //lastYSpeed = inSpeed;
+}
+
+void setFSpeed(float inSpeed){
+  fSpeed = inSpeed;
   //lastYSpeed = inSpeed;
 }
 
