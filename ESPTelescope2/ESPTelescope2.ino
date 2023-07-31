@@ -94,8 +94,6 @@ float fSpeed = 0;
 float realXSpeed = 0;
 float realYSpeed = 0;
 float realFSpeed = 0;
-//float lastXSpeed = 0;
-//float lastYSpeed = 0;
 
 int stepperSpeed = 3;
 int lastStepperSpeed = 0;
@@ -106,18 +104,28 @@ int stepperDivider = 1;
 int screenMode = 0;
 //LcdGfxMenu gpsMenu;
 
-const char *movementMenuItems[] = 
+const char *mainMenuItems[] = 
 {
-  "Move:",
+  "Move:  Disabled",
   #ifdef HAS_FOCUSER
-  "Focus:",
+  "Focus: Disabled",
   #endif
-  "Speed:",
-  "Tracking",
+  "Speed: Fast",
+  "Settings",
   "Info"
 };
 
-LcdGfxMenu movementMenu(movementMenuItems, sizeof(movementMenuItems) / sizeof(char *) );
+const char *settingsMenuItems[] = 
+{
+  "<-- Back",
+  "Alignment",
+  "Offsets",
+  "GPS/Time Settings",
+  "Tracking: Enabled"
+};
+
+LcdGfxMenu mainMenu(mainMenuItems, sizeof(mainMenuItems) / sizeof(char *) );
+LcdGfxMenu settingsMenu(settingsMenuItems, sizeof(settingsMenuItems) / sizeof(char *) );
 
 //JoyStick
 int lastYState = 0;
@@ -281,7 +289,6 @@ void setup() {
   #endif
 
   //set up and display movement menu
-  screenMode = 0;
   showInfo();  
 
   #ifdef DEBUG
@@ -305,18 +312,14 @@ void loop() {
       movementButtonControl();
       if(!moving && !focusing){
         menuControl();
-        
       }
-      
       if(moving){
         //move if in move mode
         readJoystickAndMove();  
       }
-
       if(focusing){
         //Focusing Mode
-        readJoystickAndFocus();
-        
+        readJoystickAndFocus(); 
       }
       break;
     case 2:
@@ -325,24 +328,22 @@ void loop() {
       infoScreensControl();
       break;
     case 3:
-      //manual input mode
-      manualInputMode();
+      //Settings Menu
+      movementButtonControl();
+      menuControl();
   }
 
   if(isTracking){
     doTrack();
   }
   
-/**/
   while (btComm.available() > 0){
     communication(btComm);
   }
 
-
   while (Serial.available() > 0){
     communication(Serial);
   }
-
 
   while(Serial2.available() > 0){
     if(gps.encode(Serial2.read()))
@@ -355,16 +356,7 @@ void loop() {
   #ifdef HAS_FOCUSER
     accelerateFocus();
   #endif
-/**/
-  /*
-  if(lastXSpeed != xSpeed){
-    xSpeed = lastXSpeed;
-  }
 
-  if(lastYSpeed != ySpeed){
-    ySpeed = lastYSpeed;
-  }
-    */
 }
 
 #ifdef HAS_FOCUSER
@@ -416,11 +408,6 @@ void accelerateMove(){
     
   xStepper.runSpeed();
   yStepper.runSpeed();
-}
-
-//Not sure what that is going to be
-void manualInputMode(){
-  
 }
 
 void communication(Stream &aSerial)
@@ -664,9 +651,6 @@ void communication(Stream &aSerial)
     //Sync
     if(input[1] == 'C' && input[2] == 'M'){
       
-      
-      //lastXSpeed = xSpeed;
-      //lastYSpeed = ySpeed;
       setXSpeed(0);
       setYSpeed(0);
   
@@ -977,6 +961,7 @@ void getGPS(){
 
 
 void showInfo(){
+  screenMode = 0;
   
   display.clear();
   char lat[20], lon[20];
@@ -1066,11 +1051,13 @@ void returnToMainMenu(){
   }
   
   screenMode = 1;
-  movementMenu.show( display );
-  display.printFixed(55,  8, "Disabled", STYLE_NORMAL);
-  #ifdef HAS_FOCUSER
-    display.printFixed(55,  16, "Disabled", STYLE_NORMAL);
-  #endif
+  mainMenu.show( display );
+}
+
+void returnToSettingsMenu(){
+  display.clear();
+  screenMode = 3;
+  settingsMenu.show( display );
 }
 
 void movementButtonControl(){
@@ -1092,52 +1079,69 @@ void movementButtonControl(){
 
       //Only Mess with the menu if LOW
       if (buttonState == LOW) {
-        int selected = movementMenu.selection();
-        #ifndef HAS_FOCUSER
-          if(selected > 0){
-            selected += 1;
-          }
-        #endif
 
-        switch(selected){
-          case 0:
-            if(moving){
-              setTrack();
-            }else{
-              display.printFixed(55,  8, "Enabled ", STYLE_NORMAL);
-              if(isTracking){
-                stepperSpeed = preTrackStepperSpeed;
-              }
-              moving = true;
-              isTracking = false;
-            }
-            break;
-          
+        switch(screenMode){
           case 1:
-            if(focusing){
-              focusing = false;
-              display.printFixed(55,  24, "Disabled", STYLE_NORMAL);
-            }else{
-              display.printFixed(55,  16, "Enabled ", STYLE_NORMAL);
-              focusing = true;
+            {
+              int selected = mainMenu.selection();
+              #ifndef HAS_FOCUSER
+                if(selected > 0){
+                selected += 1;
+                }
+              #endif
+
+              switch(selected){
+                case 0:
+                {
+                  if(moving){
+                    mainMenuItems[0] = "Move:  Disabled";
+                    mainMenu.show(display);  
+                    setTrack();
+                  }else{
+                    //display.printFixed(55,  8, "Enabled ", STYLE_NORMAL);
+                    mainMenuItems[0] = "Move:  Enabled";
+                    mainMenu.show(display);
+                    if(isTracking){
+                      stepperSpeed = preTrackStepperSpeed;
+                    }
+                    moving = true;
+                    isTracking = false;
+                  }
+                  break;
+                }
+                
+                case 1: //Focusing
+                {
+                  if(focusing){
+                    focusing = false;
+                    display.printFixed(55,  24, "Disabled", STYLE_NORMAL);
+                  }else{
+                    display.printFixed(55,  16, "Enabled ", STYLE_NORMAL);
+                    focusing = true;
+                  }
+                  break;
+                }
+
+                case 3: //Settings
+                {
+                  returnToSettingsMenu();
+                  break;
+                }
+
+                case 4: //GPS Mode
+                {
+                  showInfo();
+                  break;
+                }
+              }
+              break;
             }
-            break;
-          
-          
           case 3:
-            //Set Tracking
-            if(tracking){
-              display.printFixed(60,  32, "Disabled", STYLE_NORMAL);
-              tracking = false;
-            }else{
-              display.printFixed(60,  32, "Enabled ", STYLE_NORMAL);  
-              tracking = true;
+            switch(settingsMenu.selection()){
+              case 0:
+                returnToMainMenu();
+                break;
             }
-            break;
-          case 4:
-            //GPS Mode
-            screenMode = 0;
-            showInfo();
             break;
         }
       }
@@ -1201,11 +1205,27 @@ void menuControl(){
       yState = y;
       
       if(y == -1){
-        movementMenu.down();
-        movementMenu.show(display);
+        switch(screenMode){
+          case 1:
+            mainMenu.down();
+            mainMenu.show(display);
+            break;
+          case 3:
+            settingsMenu.down();
+            settingsMenu.show(display);
+            break;
+        }
       }else if(y == 1){
-        movementMenu.up();
-        movementMenu.show(display);
+        switch(screenMode){
+          case 1:
+            mainMenu.up();
+            mainMenu.show(display);
+            break;
+          case 3:
+            settingsMenu.up();
+            settingsMenu.show(display);
+            break;
+        }
       }
     }
   }
@@ -1234,24 +1254,28 @@ void menuControl(){
     if(x != xState){
       xState = x;
      
-      //Setting Speed
-      #ifdef HAS_FOCUSER
-        unsigned int speedIndex = 2;
-      #endif
-      #ifndef HAS_FOCUSER
-        unsigned int speedIndex = 1;
-      #endif
+      switch(screenMode){
+        case 1:
+          //Setting Speed
+          #ifdef HAS_FOCUSER
+            unsigned int speedIndex = 2;
+          #endif
+          #ifndef HAS_FOCUSER
+            unsigned int speedIndex = 1;
+          #endif
 
-      if(speedIndex == movementMenu.selection()){
-        isTracking = false;
-        stepperSpeed += x;
-        if(stepperSpeed < 0){
-          stepperSpeed = 3;
-        }
-        if(stepperSpeed > 3){
-          stepperSpeed = 0;
-        }
-        preTrackStepperSpeed = stepperSpeed;
+          if(speedIndex == mainMenu.selection()){
+            isTracking = false;
+            stepperSpeed += x;
+            if(stepperSpeed < 0){
+              stepperSpeed = 3;
+            }
+            if(stepperSpeed > 3){
+              stepperSpeed = 0;
+            }
+            preTrackStepperSpeed = stepperSpeed;
+          }
+          break;
       }
     }
   }
@@ -1364,8 +1388,6 @@ void setCurrentPositions(){
 
 void setStepperSpeed(){
   if(lastStepperSpeed != stepperSpeed){
-    //lastXSpeed = xSpeed;
-    //lastYSpeed = ySpeed;
     setXSpeed(0);
     setYSpeed(0);
 
@@ -1375,6 +1397,10 @@ void setStepperSpeed(){
     }
     
     setCurrentPositions();
+    int speedMenuIndex = 1;
+    #ifdef HAS_FOCUSER
+      speedMenuIndex++;
+    #endif
 
     switch(stepperSpeed){
       // 1/32 - Fine
@@ -1383,9 +1409,7 @@ void setStepperSpeed(){
         shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, 63);
         digitalWrite(LATCH_PIN, HIGH);
         stepperDivider = 32;
-        if(screenMode == 1){
-          display.printFixed(50,  16, "Fine", STYLE_NORMAL);  
-        }
+        mainMenuItems[speedMenuIndex] = "Speed: Fine";
         break;
       // 1/16 - Slow
       case 1:
@@ -1393,9 +1417,7 @@ void setStepperSpeed(){
         shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, 36);
         digitalWrite(LATCH_PIN, HIGH);
         stepperDivider = 16;
-        if(screenMode == 1){
-          display.printFixed(50,  16, "Slow", STYLE_NORMAL);  
-        }       
+        mainMenuItems[speedMenuIndex] = "Speed: Slow";
         break;
       // 1/8 - Med (HIGH, HIGH, LOW)
       case 2:      
@@ -1403,9 +1425,7 @@ void setStepperSpeed(){
         shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, 27);
         digitalWrite(LATCH_PIN, HIGH);
         stepperDivider = 8;
-        if(screenMode == 1){
-          display.printFixed(50,  16, "Med ", STYLE_NORMAL);
-        }
+        mainMenuItems[speedMenuIndex] = "Speed: Medium";
         break;
       // 1/4 - Fast (Low, High, Low)
       case 3:
@@ -1413,24 +1433,12 @@ void setStepperSpeed(){
         shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, 18);
         digitalWrite(LATCH_PIN, HIGH);
         stepperDivider = 4;
-        if(screenMode == 1){
-          display.printFixed(50,  16, "Fast", STYLE_NORMAL);  
-        } 
+        mainMenuItems[speedMenuIndex] = "Speed: Fast";
         break;
-      // 1/2 - Not in Use
-      case 4:
-        digitalWrite(LATCH_PIN, LOW);
-        shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, 9);
-        digitalWrite(LATCH_PIN, HIGH);
-        stepperDivider = 2;
-        break;
-      //Full Speed - Not in Use
-      case 5:
-        digitalWrite(LATCH_PIN, LOW);
-        shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, 0);
-        digitalWrite(LATCH_PIN, HIGH);
-        stepperDivider = 1;
-        break;
+    }
+
+    if(screenMode == 1){
+      mainMenu.show(display);
     }
   }
   
@@ -1487,10 +1495,6 @@ int getDecSS(float inDec){
 }
 
 void setTrack(){
-  if(screenMode == 1){
-    display.printFixed(55,  8, "Disabled", STYLE_NORMAL);  
-  }
-  
   setXSpeed(0);
   setYSpeed(0);
   preTrackStepperSpeed = stepperSpeed;
@@ -1561,17 +1565,14 @@ void doTrack(){
 
 void setXSpeed(float inSpeed){
   xSpeed = inSpeed;
-  //lastXSpeed = inSpeed;
 }
 
 void setYSpeed(float inSpeed){
   ySpeed = inSpeed;
-  //lastYSpeed = inSpeed;
 }
 
 void setFSpeed(float inSpeed){
   fSpeed = inSpeed;
-  //lastYSpeed = inSpeed;
 }
 
 int getDeadZone(int pinNumber){
