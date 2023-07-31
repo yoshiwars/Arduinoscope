@@ -1,79 +1,102 @@
-//Orange - 5V
-//Orange White - Ground
-//Blue/Blue White - Serial
-//Brown - X
-//Brown White - Y
-//Green - Button
+/* Hand Held - Ethernet Pinout
+8 - Brown -       3V
+7 - Brown/White - GND
+6 - Green -       5V
+5 - Blue/White -  D32 Button Pin
+4 - Blue -        D35 X Joystick 
+3 - Green/White - D34 Y Joystick
+2 - Orange -      D22
+1 - Orange/White -D21
+*/
 
 #include "lcdgfx.h"
 #include "lcdgfx_gui.h"
 #include <AccelStepper.h>
-#include <TinyGPS.h>
+#include <TinyGPSPlus.h>
 #include <SiderealPlanets.h>
 #include "BluetoothSerial.h"
 #include <TimeLib.h>
 
+/************************************************************************************************************************
+Start Configurable Items
+*************************************************************************************************************************/
+#define BLUETOOTH_NAME "Tripod_Mount"           //Name of the Bluetooth Serial
+const int GEAR_RATIO = 1;                       //where 1 is no gearing (ex. 300 Tooth gear / 20 tooth gear = 15)
+const double SINGLE_STEP_DEGREE =  360.0 / 200.0;    // the motor has 200 regular steps for 360 degrees (360 divided by 200 = 1.8)
+const double MOTOR_GEAR_BOX = (26.0 + (103.0/121.0)); //where 1 is no gearing (26 + (103/121)) planetary gearbox version
+const float MAX_MOTOR_SPEED = 250;              //250 is probably good without GEAR_RATIO >1, 3000 is good 
 
-//setup Serial comms
-BluetoothSerial btComm;
+//Define Motor setup
+const int Y_DIRECTION_PIN = 13;                 //ALT Driver Dir
+const int Y_STEP_PIN = 12;                      //ALT Driver Step
+const int X_DIRECTION_PIN = 14;                 //AZ Driver Dir
+const int X_STEP_PIN = 27;                      //AZ Driver Step
+const int MOTOR_INTERFACE_TYPE = 1;             //AccelStepper Motor Type 1
+//#define MIN_PULSE_WIDTH 50                      //use to adjust stepper pulses, comment out for default
 
-SiderealPlanets myAstro;
+//Define Remote setup
+const int Y_JOYSTICK_PIN = 34;                  //Up/Down Pin on the Remote
+const int Y_INVERT = -1;                        //1 is normal, -1 inverted
+const int X_JOYSTICK_PIN = 35;                  //Left/Right Pin on the remote
+const int X_INVERT = -1;                        //1 is normal, -1 inverted
 
-// Stepper Motor mode
-const int MotorInterfaceType = 1;
-// Focuser Motor Mode
-const int FocuserMotorMode = 8;
+const int BUTTON_PIN = 32;                      //button on Remotes
+const int ANALOG_READ_RESOLUTION = 4095;        //ESP32 has this resolution, other chips may vary
 
-//Shift for motorspeeds
-int latchPin = 5;   //Pin connected to ST_CP of 74HC595
-int clockPin = 18;  //Pin connected to SH_CP of 74HC595
-int dataPin = 19;   //Pin connected to DS of 74HC595
+//Comment Out HAS_FOCUSER for no Focuser
+//#define HAS_FOCUSER
 
-//button stuff
-const int buttonPin = 32;
+const int FOCUS_DIRECTION_PIN = 2;
+const int FOCUS_STEP_PIN = 2;
+const int MAX_FOCUS_SPEED = 1024;
+const int FOCUS_MOTOR_MODE = 1;                 //1 is with driver DRV8825
+
+//Shift Register for motor speeds
+const int LATCH_PIN = 18;                        //Pin connected to ST_CP of 74HC595
+const int CLOCK_PIN = 19;                       //Pin connected to SH_CP of 74HC595
+const int DATA_PIN = 5;                        //Pin connected to DS of 74HC595
+
+//uncomment to get debugging
+//#define DEBUG
+//#define DEBUG_STEPS
+//#define DEBUG_X_JOYSTICK
+//#define DEBUG_Y_JOYSTICK 
+/************************************************************************************************************************
+End Configurable Items
+*************************************************************************************************************************/
+
+/************************************************************************************************************************
+Global Variables - These should not need to change based on devices
+*************************************************************************************************************************/
+BluetoothSerial btComm;   //Bluetooth Setup
+SiderealPlanets myAstro;  //Used for calculations
+
+//button states
 int buttonState = LOW;             // the current reading from the input pin
 int lastButtonState = LOW;   // the previous reading from the input pin
 unsigned long lastDebounceTime = 0;  // the last time the output pin was toggled
 unsigned long debounceDelay = 50;    // the debounce time; increase if the output flickers
 
-//Y setup
-const int yDir = 13;
-const int yStep = 12;
-const int pinY = 34;
+//AltAZ motor rotation min
+const double rotationDegrees = (SINGLE_STEP_DEGREE / MOTOR_GEAR_BOX); //degrees / single step per rev / gearbox
 
-//X setup
-const int xDir = 14;
-const int xStep = 27;
-const int pinX = 35;
+//Motor Starts
+AccelStepper yStepper = AccelStepper(MOTOR_INTERFACE_TYPE,Y_STEP_PIN,Y_DIRECTION_PIN);
+AccelStepper xStepper = AccelStepper(MOTOR_INTERFACE_TYPE,X_STEP_PIN,X_DIRECTION_PIN);
+#ifdef HAS_FOCUSER
+AccelStepper focuser = AccelStepper(FOCUS_INTERFACE_TYPE,FOCUS_STEP_PIN,FOCUS_DIRECTION_PIN);
+#endif
 
-const int analogResolution = 4095;
-
-//Focuser Setup
-const int focusPin1 = 2;
-const int focusPin2 = 4;
-const int focusPin3 = 15;
-const int focusPin4 = 23;
-const int maxFocusSpeed = 2048;
-int focusSpeed = 0;
-
-AccelStepper yStepper = AccelStepper(MotorInterfaceType,yStep,yDir);
-AccelStepper xStepper = AccelStepper(MotorInterfaceType,xStep,xDir);
-AccelStepper focuser = AccelStepper(FocuserMotorMode, focusPin1, focusPin3, focusPin2, focusPin4);
 
 float xSpeed = 0;
 float ySpeed = 0;
 float fSpeed = 0;
-
 float realXSpeed = 0;
 float realYSpeed = 0;
 float realFSpeed = 0;
-
 //float lastXSpeed = 0;
 //float lastYSpeed = 0;
 
-const int gearRatio = 15;
-const double rotationDegrees = 1.8 / (26 + (103/121)); //degrees / steps per rev / gearbox
-const float maxMotorSpeed = 3000; //because of the gear box
 int stepperSpeed = 3;
 int lastStepperSpeed = 0;
 int preTrackStepperSpeed = 3;
@@ -86,7 +109,9 @@ int screenMode = 0;
 const char *movementMenuItems[] = 
 {
   "Move:",
+  #ifdef HAS_FOCUSER
   "Focus:",
+  #endif
   "Speed:",
   "Tracking",
   "Info"
@@ -100,6 +125,8 @@ int yState = 0;
 unsigned long lastYDebounceTime = 0;
 int yDeadZone = 0;
 int xDeadZone = 0;
+int maxY = ANALOG_READ_RESOLUTION;
+int maxX = ANALOG_READ_RESOLUTION;
 
 int lastXState = 0;
 int xState = 0;
@@ -132,7 +159,7 @@ int inYear;
 
 
 //GPS
-TinyGPS gps;
+TinyGPSPlus gps;
 bool gpsAcquired = false;
 long lastGPSCheck = 0;
 
@@ -168,65 +195,98 @@ long slewScreenUpdate = 0;
 DisplaySSD1306_128x64_I2C display(-1); // or (-1,{busId, addr, scl, sda, frequency}). This line is suitable for most platforms by default
 
 void setup() {
-  // put your setup code here, to run once:
-  pinMode(pinY, INPUT);
-  pinMode(pinX, INPUT);
-  pinMode(latchPin, OUTPUT);
-  pinMode(dataPin, OUTPUT);
-  pinMode(clockPin, OUTPUT);
-
-  pinMode(buttonPin, INPUT_PULLUP);
-  
-  //Bluetooth
-  btComm.begin(9600);
+  // Set all Pin Modes
+  pinMode(Y_JOYSTICK_PIN, INPUT);
+  pinMode(X_JOYSTICK_PIN, INPUT);
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  pinMode(LATCH_PIN, OUTPUT);
+  pinMode(CLOCK_PIN, OUTPUT);
+  pinMode(DATA_PIN, OUTPUT);
     
-  //start GPS
-  Serial2.begin(9600);
-
+  //Start Comms
+  #ifdef DEBUG
+    Serial.begin(115200);   //USB
+  #endif
+  #ifndef DEBUG
+    Serial.begin(9600);     //USB
+  #endif
+  btComm.begin(BLUETOOTH_NAME);   //Bluetooth
+  Serial2.begin(9600);  //start GPS
   
-  Serial.begin(9600);
-  delay(2000);
+  #ifdef DEBUG
+    Serial.println("Start Up");
+  #endif
+
+  #ifdef MIN_PULSE_WIDTH
+    xStepper.setMinPulseWidth(MIN_PULSE_WIDTH);
+    yStepper.setMinPulseWidth(MIN_PULSE_WIDTH);
+  #endif
+
+  #ifdef DEBUG_STEPS
+    Serial.print("GEAR_RATIO: ");
+    Serial.println(GEAR_RATIO);
+    Serial.print("SINGLE_STEP_DEGREE: ");
+    printDouble(SINGLE_STEP_DEGREE, 10000);
+    Serial.println("");
+    Serial.print("MOTOR_GEAR_BOX: ");
+    printDouble(MOTOR_GEAR_BOX, 10000);
+    Serial.println("");
+    Serial.print("MAX_MOTOR_SPEED: ");
+    Serial.println(MAX_MOTOR_SPEED);
+    Serial.print("rotationDegrees: ");
+    printDouble(rotationDegrees,10000);
+    Serial.println("");
+  #endif
   
   //-8 = PST
   myAstro.begin();
   myAstro.setTimeZone(-8);
   myAstro.rejectDST();
+
+  #ifdef DEBUG
+    Serial.println("Astro Started");
+  #endif
   
 
   //start up screen
   display.setFixedFont( ssd1306xled_font6x8 );
-  
   display.begin();
   display.clear();
+
+  #ifdef DEBUG
+    Serial.println("Screen Started");
+  #endif
+  
   display.printFixed(0,0,"Please Stand By",STYLE_NORMAL);
   display.printFixed(0,8,"Calibrate JoySticks",STYLE_NORMAL);
 
-  yDeadZone = getDeadZone(pinY);
-  xDeadZone = getDeadZone(pinX);
+  yDeadZone = getDeadZone(Y_JOYSTICK_PIN);
+  xDeadZone = getDeadZone(X_JOYSTICK_PIN);
+  maxY = (ANALOG_READ_RESOLUTION + yDeadZone)/2;
+  maxX = (ANALOG_READ_RESOLUTION + xDeadZone)/2;
 
-  display.printFixed(0,  16, "Preparing Motors", STYLE_NORMAL);
-
-  display.printFixed(0, 24, "Searching for GPS", STYLE_NORMAL);
-
-  long lastMillis = millis();
-  
-  while(millis()-lastMillis < 3000){
-    while(Serial2.available() > 0){
-        getGPS(Serial2.read());
-    }
-  }
-  
+  #ifdef DEBUG
+    Serial.println("Joysticks Calibrated");
+  #endif
+ 
+  display.printFixed(0,16,"Set Motors",STYLE_NORMAL);
   //set motor max
-  yStepper.setMaxSpeed(maxMotorSpeed);
+  yStepper.setMaxSpeed(MAX_MOTOR_SPEED);
   yStepper.setCurrentPosition(0);
-  xStepper.setMaxSpeed(maxMotorSpeed);
+  xStepper.setMaxSpeed(MAX_MOTOR_SPEED);
   xStepper.setCurrentPosition(0);
 
-  focuser.setMaxSpeed(maxFocusSpeed);
+  #ifdef HAS_FOCUSER
+    focuser.setMaxSpeed(MAX_FOCUS_SPEED);
+  #endif
 
   //set up and display movement menu
   screenMode = 0;
   showInfo();  
+
+  #ifdef DEBUG
+    Serial.println("Ready");
+  #endif
 }
 
 void loop() {
@@ -272,24 +332,30 @@ void loop() {
   if(isTracking){
     doTrack();
   }
-
+  
+/**/
   while (btComm.available() > 0){
     communication(btComm);
   }
+
 
   while (Serial.available() > 0){
     communication(Serial);
   }
 
+
   while(Serial2.available() > 0){
-    getGPS(Serial2.read());
+    if(gps.encode(Serial2.read()))
+      getGPS();
   }
 
   setStepperSpeed();
 
   accelerateMove();
-  accelerateFocus();
-
+  #ifdef HAS_FOCUSER
+    accelerateFocus();
+  #endif
+/**/
   /*
   if(lastXSpeed != xSpeed){
     xSpeed = lastXSpeed;
@@ -301,6 +367,7 @@ void loop() {
     */
 }
 
+#ifdef HAS_FOCUSER
 void accelerateFocus(){
 
   if(abs(realFSpeed - fSpeed)> 1){
@@ -318,7 +385,7 @@ void accelerateFocus(){
   focuser.runSpeed();
   
 }
-
+#endif
 
 
 
@@ -333,7 +400,7 @@ void accelerateMove(){
   }else{
     realXSpeed = xSpeed;
   }
-  
+
   if(abs(realYSpeed - ySpeed) > 1){
     if(realYSpeed < ySpeed){
       realYSpeed++;
@@ -343,8 +410,7 @@ void accelerateMove(){
   }else{
     realYSpeed = ySpeed;
   }
-  
-  
+
   xStepper.setSpeed(realXSpeed);
   yStepper.setSpeed(realYSpeed);
     
@@ -412,13 +478,7 @@ void communication(Stream &aSerial)
 
     if(input[1] == 'G' && input[2] == 'C'){
       //Get Telescope Local Date
-      int gpsYear;
-      byte gpsMonth, gpsDay, gpsHour, gpsMinute, gpsSecond, gpsHundredths;
-      unsigned long age;
-
-      gps.crack_datetime(&gpsYear, &gpsMonth, &gpsDay, &gpsHour, &gpsMinute, &gpsSecond, &gpsHundredths, &age);
-
-      setTime(gpsHour, gpsMinute, gpsSecond, gpsDay, gpsMonth, gpsYear);
+      setTime(gps.time.hour(), gps.time.minute(), gps.time.second(), gps.date.day(), gps.date.month(), gps.date.year());
       
       if(myAstro.getLT() > myAstro.getGMT()){
         adjustTime(-1*((24 + myAstro.getGMT()) - myAstro.getLT())*3600);
@@ -452,10 +512,8 @@ void communication(Stream &aSerial)
     }
 
     if(input[1] == 'G' && input[2] == 'g'){
-      float lat, lon;
-      unsigned long age;
-      gps.f_get_position(&lat, &lon, &age);
-
+      float lon = gps.location.lng();
+      
       char charLon[20];
 
       int lonDeg = (int) lon;
@@ -469,14 +527,12 @@ void communication(Stream &aSerial)
     }
 
     if(input[1] == 'G' && input[2] == 't'){
-      float lat, lon;
-      unsigned long age;
-      gps.f_get_position(&lat, &lon, &age);
-
+      float lat = gps.location.lat();
+      
       char charLat[20];
 
-      int latDeg = (int) flat;
-      float latMinutesRemainder = abs(flat-latDeg) * 60;
+      int latDeg = (int) lat;
+      float latMinutesRemainder = abs(lat-latDeg) * 60;
       int latMin = (int)latMinutesRemainder;
 
       sprintf(charLat, "%02d*%02d#", latDeg, latMin);
@@ -745,7 +801,7 @@ void slewMode(){
     remainingAz = targetAz - totalAz;
   }
   
-  double minStep = ((rotationDegrees)/gearRatio)/32;
+  double minStep = ((rotationDegrees)/GEAR_RATIO)/32;
   bool moveAz = false;
   bool moveAlt = false;
   float moveSpeed = 0;
@@ -766,7 +822,7 @@ void slewMode(){
         moveAlt = true;
       }
       
-      moveSpeed = maxMotorSpeed;
+      moveSpeed = MAX_MOTOR_SPEED;
       moveSpeed *=  (stepperSpeed + 1);
       moveSpeed /=  4;
 
@@ -856,66 +912,66 @@ void slewMode(){
   
 }
 
-bool getGPS(const byte inGPSByte){
-  bool gpsNewData = false;
-
-  static unsigned int gpsInput_pos = 0;
-
-  int gpsYear;
-  byte gpsMonth, gpsDay, gpsHour, gpsMinute, gpsSecond, gpsHundredths;
-
-  switch(inGPSByte){
-    case '\n':
-      
-      gpsData[gpsInput_pos++] = inGPSByte; 
-      gpsData[gpsInput_pos] = 0; //terminating null byte
-
-      
-      //terminator reached! process newdata
-      for(unsigned int i = 0; i < strlen(gpsData); i++){
-        
-        if (gps.encode(gpsData[i])){ // Did a new valid sentence come in?
-          gpsNewData = true;
-          break;  
-        }
-      }
-      
-      
-      //reset buffer for next time
-      gpsInput_pos = 0;    
-      break;
-
-    default:
-     // keep adding if not full ... allow for terminating null byte
-    if (gpsInput_pos < (gpsNumChars - 1))
-      gpsData[gpsInput_pos++] = inGPSByte;
-    break;
-  }
-
-  if (gpsNewData)
-  {
+void getGPS(){
+  
+  
+  if(gps.location.isValid()){
     
-    unsigned long age;
-    gps.f_get_position(&flat, &flon, &age);
-
-    gps.crack_datetime(&gpsYear, &gpsMonth, &gpsDay, &gpsHour, &gpsMinute, &gpsSecond, &gpsHundredths, &age);
+    flat = gps.location.lat();
+    flon = gps.location.lng();
     
-    sats = gps.satellites() == TinyGPS::GPS_INVALID_SATELLITES ? 0 : gps.satellites();
-    faltitude = gps.f_altitude() == TinyGPS::GPS_INVALID_F_ALTITUDE ? 0 : gps.f_altitude();
-
-    setTime(gpsHour, gpsMinute, gpsSecond, gpsDay, gpsMonth, gpsYear);
-    myAstro.setGMTdate(gpsYear, gpsMonth, gpsDay);
-    myAstro.setGMTtime(gpsHour, gpsMinute, gpsSecond);
-    myAstro.useAutoDST();
-
     myAstro.setLatLong((double)flat, (double)flon);
+    #ifdef DEBUG
+      Serial.println("Location Updated");
+      Serial.print("Lat: ");
+      Serial.println(flat,6);
+      Serial.print("Long: ");
+      Serial.println(flon,6);
+    #endif
+    
+  }
+  
+  if(gps.altitude.isValid()){
+    faltitude = gps.altitude.meters();
     myAstro.setElevationM((double)faltitude);
 
-    gpsNewData = false;
-    return true;
+    #ifdef DEBUG
+      Serial.print("Alt: ");
+      Serial.println(faltitude,6);
+    #endif
   }
+   
+  
+  sats = gps.satellites.value();
 
-  return false;
+  #ifdef DEBUG
+      Serial.print("Sats: ");
+      Serial.println(sats);
+    #endif
+  
+  if(gps.date.isValid()){
+    setTime(gps.time.hour(), gps.time.minute(), gps.time.second(), gps.date.day(), gps.date.month(), gps.date.year());
+    myAstro.setGMTdate(gps.date.year(), gps.date.month(), gps.date.day());
+    myAstro.setGMTtime(gps.time.hour(), gps.time.minute(), gps.time.second());
+    myAstro.useAutoDST();
+    
+    #ifdef DEBUG
+      Serial.print("Date: ");
+      Serial.print(gps.date.month());
+      Serial.print("/");
+      Serial.print(gps.date.day());
+      Serial.print("/");
+      Serial.print(gps.date.year());
+      Serial.print(" ");
+      Serial.print(gps.time.hour());
+      Serial.print(":");
+      Serial.print(gps.time.minute());
+      Serial.print(":");
+      Serial.println(gps.time.second(),2);
+    #endif
+    
+  }
+  
 }
 
 
@@ -957,7 +1013,7 @@ void showInfo(){
   display.printFixed(0,  8, charPrint, STYLE_NORMAL);
 
   //Altitude
-  sprintf(charPrint,"Alt: %02dm",faltitude);
+  sprintf(charPrint,"Alt: %.02fm",faltitude);
   display.printFixed(0,  16, charPrint, STYLE_NORMAL);
   
 
@@ -974,7 +1030,7 @@ void showInfo(){
 
 void infoScreensControl(){
   //Read button press
-  int reading = digitalRead(buttonPin);
+  int reading = digitalRead(BUTTON_PIN);
 
   if (reading != lastButtonState) {
     // reset the debouncing timer
@@ -1012,12 +1068,14 @@ void returnToMainMenu(){
   screenMode = 1;
   movementMenu.show( display );
   display.printFixed(55,  8, "Disabled", STYLE_NORMAL);
-  display.printFixed(55,  16, "Disabled", STYLE_NORMAL);
+  #ifdef HAS_FOCUSER
+    display.printFixed(55,  16, "Disabled", STYLE_NORMAL);
+  #endif
 }
 
 void movementButtonControl(){
   //Read button press
-  int reading = digitalRead(buttonPin);
+  int reading = digitalRead(BUTTON_PIN);
 
   if (reading != lastButtonState) {
     // reset the debouncing timer
@@ -1034,12 +1092,17 @@ void movementButtonControl(){
 
       //Only Mess with the menu if LOW
       if (buttonState == LOW) {
-        
-        switch(movementMenu.selection()){
+        int selected = movementMenu.selection();
+        #ifndef HAS_FOCUSER
+          if(selected > 0){
+            selected += 1;
+          }
+        #endif
+
+        switch(selected){
           case 0:
             if(moving){
               setTrack();
-              
             }else{
               display.printFixed(55,  8, "Enabled ", STYLE_NORMAL);
               if(isTracking){
@@ -1049,15 +1112,17 @@ void movementButtonControl(){
               isTracking = false;
             }
             break;
+          
           case 1:
             if(focusing){
               focusing = false;
-              display.printFixed(55,  16, "Disabled", STYLE_NORMAL);
+              display.printFixed(55,  24, "Disabled", STYLE_NORMAL);
             }else{
               display.printFixed(55,  16, "Enabled ", STYLE_NORMAL);
               focusing = true;
             }
             break;
+          
           
           case 3:
             //Set Tracking
@@ -1082,20 +1147,48 @@ void movementButtonControl(){
   lastButtonState = reading;
 }
 
+int getYStick(){
+  int inY = analogRead(Y_JOYSTICK_PIN);
+  
+  #ifdef DEBUG_Y_JOYSTICK
+    Serial.print("Y:");
+    Serial.println(inY);
+  #endif
+
+  if(inY > maxY){
+    maxY = inY;
+  }
+  return inY;
+}
+
+int getXStick(){
+  int inX = analogRead(X_JOYSTICK_PIN);
+  
+  #ifdef DEBUG_X_JOYSTICK
+    Serial.print("X:");
+    Serial.println(inX);
+  #endif
+
+  if(inX > maxX){
+    maxX = inX;
+  }
+  return inX;
+}
+
 void menuControl(){
-  int inY = analogRead(pinY);
+  int inY = getYStick();
   int y = 0;
 
-  if(inY < 120){
+  if(inY < (ANALOG_READ_RESOLUTION/12)){
     
-    y = -1;
+    y = -1 * Y_INVERT;
   }
-  if(inY >= 120 && inY <= (analogResolution - 120)){
+  if(inY >= (ANALOG_READ_RESOLUTION/12) && inY <= (maxY - (ANALOG_READ_RESOLUTION/12))){
     y = 0;
   }
-  if(inY > (analogResolution - 120)){
+  if(inY > (maxY - (ANALOG_READ_RESOLUTION/12))){
     
-    y = 1;
+    y = 1 * Y_INVERT;
   }  
   
   if(y != lastYState){
@@ -1119,17 +1212,17 @@ void menuControl(){
   lastYState = y;
 
   //Handle right left movement
-  int inX = analogRead(pinX);
+  int inX = getXStick();
   int x = 0;
 
-  if(inX < 120){
-    x = -1;
+  if(inX < (ANALOG_READ_RESOLUTION/12)){
+    x = -1 * X_INVERT;
   }
-  if(inX >= 120 && inX <= (analogResolution - 120)){
+  if(inX >= (ANALOG_READ_RESOLUTION/12) && inX <= (maxX - (ANALOG_READ_RESOLUTION/12))){
     x = 0;
   }
-  if(inX > (analogResolution - 120)){
-    x = 1;
+  if(inX > (maxX - (ANALOG_READ_RESOLUTION/12))){
+    x = 1 * X_INVERT;
   }  
   
   if(x != lastXState){
@@ -1141,19 +1234,24 @@ void menuControl(){
     if(x != xState){
       xState = x;
      
-      switch(movementMenu.selection()){
-        //Set StepperSpeed
-        case 2:
-          isTracking = false;
-          stepperSpeed += x;
-          if(stepperSpeed < 0){
-            stepperSpeed = 3;
-          }
-          if(stepperSpeed > 3){
-            stepperSpeed = 0;
-          }
-          preTrackStepperSpeed = stepperSpeed;
-        break;
+      //Setting Speed
+      #ifdef HAS_FOCUSER
+        unsigned int speedIndex = 2;
+      #endif
+      #ifndef HAS_FOCUSER
+        unsigned int speedIndex = 1;
+      #endif
+
+      if(speedIndex == movementMenu.selection()){
+        isTracking = false;
+        stepperSpeed += x;
+        if(stepperSpeed < 0){
+          stepperSpeed = 3;
+        }
+        if(stepperSpeed > 3){
+          stepperSpeed = 0;
+        }
+        preTrackStepperSpeed = stepperSpeed;
       }
     }
   }
@@ -1162,17 +1260,17 @@ void menuControl(){
 
 void readJoystickAndFocus(){
   
-  int x = map(analogRead(pinX), 0, analogResolution, -512, 512);
+  int x = getXStick();
 
   int aXSpeed = 0;
   
   if(x > xDeadZone + 50){
     //Top Speed: 1000?
-    aXSpeed = map(x, (xDeadZone + 50), 512, 0, maxFocusSpeed);
+    aXSpeed = map(x, (xDeadZone + 50), (xDeadZone * 2), 0, MAX_FOCUS_SPEED * X_INVERT); //TODO Fix for xMax
     xMoving = true;    
   }else if(x < xDeadZone - 50){
     //Top Speed: 1000?
-    aXSpeed = map(x, (xDeadZone - 50),-512,0, -maxFocusSpeed);
+    aXSpeed = map(x, (xDeadZone - 50),0,0, -MAX_FOCUS_SPEED * X_INVERT);
     xMoving = true;
   }else{
     xMoving = false;
@@ -1185,23 +1283,21 @@ void readJoystickAndFocus(){
   }
 
   xLastMoving = xMoving;
-  
 }
 
 
 void readJoystickAndMove(){
-  int y = map(analogRead(pinY), 0, analogResolution, -512, 512);
-  
+  int y = getYStick();
+
   int aYSpeed = 0;
 
-  
   if(y > yDeadZone + 50){
-    //aYSpeed = map(y, (yDeadZone + 50), 512, 0, maxMotorSpeed * ((stepperSpeed + 1) / 4));
-    aYSpeed = map(y, (yDeadZone + 50), 512, 0, maxMotorSpeed);
+    //aYSpeed = map(y, (yDeadZone + 50), 512, 0, MAX_MOTOR_SPEED * ((stepperSpeed + 1) / 4));
+    aYSpeed = map(y, (yDeadZone + 50), maxY, 0, MAX_MOTOR_SPEED * Y_INVERT);
     yMoving = true;
   }else if(y < yDeadZone - 50){
-    //aYSpeed = map(y, (yDeadZone - 50),-512,0, -maxMotorSpeed * ((stepperSpeed + 1) / 4));
-    aYSpeed = map(y, (yDeadZone - 50),-512,0, -maxMotorSpeed);
+    //aYSpeed = map(y, (yDeadZone - 50),-512,0, -MAX_MOTOR_SPEED * ((stepperSpeed + 1) / 4));
+    aYSpeed = map(y, (yDeadZone - 50),0,0, -MAX_MOTOR_SPEED * Y_INVERT);
     yMoving = true;
   }else{
     yMoving = false;
@@ -1215,17 +1311,17 @@ void readJoystickAndMove(){
 
   yLastMoving = yMoving;
   
-  int x = map(analogRead(pinX), 0, analogResolution, -512, 512);
+  int x = getXStick();
 
   int aXSpeed = 0;
   
   if(x > xDeadZone + 50){
-    //aXSpeed = map(x, (xDeadZone + 50), 512, 0, maxMotorSpeed * ((stepperSpeed + 1) / 4));
-    aXSpeed = map(x, (xDeadZone + 50), 512, 0, maxMotorSpeed);
+    //aXSpeed = map(x, (xDeadZone + 50), 512, 0, MAX_MOTOR_SPEED * ((stepperSpeed + 1) / 4));
+    aXSpeed = map(x, (xDeadZone + 50), maxX, 0, MAX_MOTOR_SPEED * X_INVERT);
     xMoving = true;    
   }else if(x < xDeadZone - 50){
-    //aXSpeed = map(x, (xDeadZone - 50),-512,0, -maxMotorSpeed * ((stepperSpeed + 1) / 4));
-    aXSpeed = map(x, (xDeadZone - 50),-512,0, -maxMotorSpeed);
+    //aXSpeed = map(x, (xDeadZone - 50),-512,0, -MAX_MOTOR_SPEED * ((stepperSpeed + 1) / 4));
+    aXSpeed = map(x, (xDeadZone - 50),0,0, -MAX_MOTOR_SPEED * X_INVERT);
     xMoving = true;
   }else{
     xMoving = false;
@@ -1241,12 +1337,12 @@ void readJoystickAndMove(){
   
 }
 
-float addSteps(int steps, float inDegrees){
-  float fSteps = float(steps);
+double addSteps(int steps, double inDegrees){
+  double fSteps = double(steps);
   //fSteps = -1 * fSteps;
-  float degree = ((fSteps * rotationDegrees)/gearRatio)/stepperDivider;
+  double degree = ((fSteps * rotationDegrees)/GEAR_RATIO)/stepperDivider;
   
-  float outDegrees = inDegrees + degree;
+  double outDegrees = inDegrees + degree;
 
   while(outDegrees < 0){
     outDegrees += 360;
@@ -1283,9 +1379,9 @@ void setStepperSpeed(){
     switch(stepperSpeed){
       // 1/32 - Fine
       case 0:
-        digitalWrite(latchPin, LOW);
-        shiftOut(dataPin, clockPin, MSBFIRST, 63);
-        digitalWrite(latchPin, HIGH);
+        digitalWrite(LATCH_PIN, LOW);
+        shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, 63);
+        digitalWrite(LATCH_PIN, HIGH);
         stepperDivider = 32;
         if(screenMode == 1){
           display.printFixed(50,  16, "Fine", STYLE_NORMAL);  
@@ -1293,29 +1389,29 @@ void setStepperSpeed(){
         break;
       // 1/16 - Slow
       case 1:
-        digitalWrite(latchPin, LOW);
-        shiftOut(dataPin, clockPin, MSBFIRST, 36);
-        digitalWrite(latchPin, HIGH);
+        digitalWrite(LATCH_PIN, LOW);
+        shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, 36);
+        digitalWrite(LATCH_PIN, HIGH);
         stepperDivider = 16;
         if(screenMode == 1){
           display.printFixed(50,  16, "Slow", STYLE_NORMAL);  
         }       
         break;
-      // 1/8 - Med
+      // 1/8 - Med (HIGH, HIGH, LOW)
       case 2:      
-        digitalWrite(latchPin, LOW);
-        shiftOut(dataPin, clockPin, MSBFIRST, 27);
-        digitalWrite(latchPin, HIGH);
+        digitalWrite(LATCH_PIN, LOW);
+        shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, 27);
+        digitalWrite(LATCH_PIN, HIGH);
         stepperDivider = 8;
         if(screenMode == 1){
           display.printFixed(50,  16, "Med ", STYLE_NORMAL);
         }
         break;
-      // 1/4 - Fast
+      // 1/4 - Fast (Low, High, Low)
       case 3:
-        digitalWrite(latchPin, LOW);
-        shiftOut(dataPin, clockPin, MSBFIRST, 18);
-        digitalWrite(latchPin, HIGH);
+        digitalWrite(LATCH_PIN, LOW);
+        shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, 18);
+        digitalWrite(LATCH_PIN, HIGH);
         stepperDivider = 4;
         if(screenMode == 1){
           display.printFixed(50,  16, "Fast", STYLE_NORMAL);  
@@ -1323,16 +1419,16 @@ void setStepperSpeed(){
         break;
       // 1/2 - Not in Use
       case 4:
-        digitalWrite(latchPin, LOW);
-        shiftOut(dataPin, clockPin, MSBFIRST, 9);
-        digitalWrite(latchPin, HIGH);
+        digitalWrite(LATCH_PIN, LOW);
+        shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, 9);
+        digitalWrite(LATCH_PIN, HIGH);
         stepperDivider = 2;
         break;
       //Full Speed - Not in Use
       case 5:
-        digitalWrite(latchPin, LOW);
-        shiftOut(dataPin, clockPin, MSBFIRST, 0);
-        digitalWrite(latchPin, HIGH);
+        digitalWrite(LATCH_PIN, LOW);
+        shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, 0);
+        digitalWrite(LATCH_PIN, HIGH);
         stepperDivider = 1;
         break;
     }
@@ -1448,8 +1544,8 @@ void doTrack(){
     }else{
       azRate = (maxAz - minAz)/20;
     }
-    double trackXSpeed = -1*(azRate * stepperDivider * gearRatio)/rotationDegrees;
-    double trackYSpeed = -1*(((maxAlt - minAlt)/20) * stepperDivider * gearRatio)/rotationDegrees;
+    double trackXSpeed = -1*(azRate * stepperDivider * GEAR_RATIO)/rotationDegrees;
+    double trackYSpeed = -1*(((maxAlt - minAlt)/20) * stepperDivider * GEAR_RATIO)/rotationDegrees;
     
     setXSpeed(trackXSpeed);
     setYSpeed(trackYSpeed);
@@ -1479,15 +1575,37 @@ void setFSpeed(float inSpeed){
 }
 
 int getDeadZone(int pinNumber){
-  int read1 = map(analogRead(pinNumber), 0, analogResolution, -512, 512);
+  int read1 = analogRead(pinNumber);
   delay(20);
-  int read2 = map(analogRead(pinNumber), 0, analogResolution, -512, 512);
+  int read2 = analogRead(pinNumber);
   delay(20);
-  int read3 = map(analogRead(pinNumber), 0, analogResolution, -512, 512);
+  int read3 = analogRead(pinNumber);
   delay(20);
-  int read4 = map(analogRead(pinNumber), 0, analogResolution, -512, 512);
+  int read4 = analogRead(pinNumber);
   delay(20);
-  int read5 = map(analogRead(pinNumber), 0, analogResolution, -512, 512);
+  int read5 = analogRead(pinNumber);
 
   return (read1 + read2 + read3 + read4 + read5)/5;
+}
+
+void printDouble( double val, unsigned int precision){
+// prints val with number of decimal places determine by precision
+// NOTE: precision is 1 followed by the number of zeros for the desired number of decimial places
+// example: printDouble( 3.1415, 100); // prints 3.14 (two decimal places)
+
+    Serial.print (int(val));  //prints the int part
+    Serial.print("."); // print the decimal point
+    unsigned int frac;
+    if(val >= 0)
+      frac = (val - int(val)) * precision;
+    else
+       frac = (int(val)- val ) * precision;
+    int frac1 = frac;
+    while( frac1 /= 10 )
+        precision /= 10;
+    precision /= 10;
+    while(  precision /= 10)
+        Serial.print("0");
+
+    Serial.println(frac,DEC) ;
 }
