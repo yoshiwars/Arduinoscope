@@ -1,14 +1,3 @@
-/* Hand Held - Ethernet Pinout
-8 - Brown -       3V
-7 - Brown/White - GND
-6 - Green -       5V
-5 - Blue/White -  D32 Button Pin
-4 - Blue -        D35 X Joystick 
-3 - Green/White - D34 Y Joystick
-2 - Orange -      D22
-1 - Orange/White -D21
-*/
-
 #include "lcdgfx.h"
 #include "lcdgfx_gui.h"
 #include <AccelStepper.h>
@@ -16,11 +5,13 @@
 #include <SiderealPlanets.h>
 #include "BluetoothSerial.h"
 #include <TimeLib.h>
+#include "Preferences.h"
+#include <SiderealObjects.h>
 
 /************************************************************************************************************************
 Start Configurable Items
 *************************************************************************************************************************/
-#define BLUETOOTH_NAME "Tripod_Mount"           //Name of the Bluetooth Serial
+#define MOUNT_NAME "Tripod_Mount"           //Name of the Bluetooth Serial
 const int GEAR_RATIO = 1;                       //where 1 is no gearing (ex. 300 Tooth gear / 20 tooth gear = 15)
 const double SINGLE_STEP_DEGREE =  360.0 / 200.0;    // the motor has 200 regular steps for 360 degrees (360 divided by 200 = 1.8)
 const double MOTOR_GEAR_BOX = (26.0 + (103.0/121.0)); //where 1 is no gearing (26 + (103/121)) planetary gearbox version
@@ -46,21 +37,24 @@ const int ANALOG_READ_RESOLUTION = 4095;        //ESP32 has this resolution, oth
 //Comment Out HAS_FOCUSER for no Focuser
 //#define HAS_FOCUSER
 
-const int FOCUS_DIRECTION_PIN = 2;
-const int FOCUS_STEP_PIN = 2;
-const int MAX_FOCUS_SPEED = 1024;
-const int FOCUS_MOTOR_MODE = 1;                 //1 is with driver DRV8825
+#ifdef HAS_FOCUSER
+  const int FOCUS_DIRECTION_PIN = 2;
+  const int FOCUS_STEP_PIN = 2;
+  const int MAX_FOCUS_SPEED = 1024;
+  const int FOCUS_INTERFACE_TYPE = 1;           //1 is with driver DRV8825
+#endif
 
 //Shift Register for motor speeds
-const int LATCH_PIN = 18;                        //Pin connected to ST_CP of 74HC595
+const int LATCH_PIN = 18;                       //Pin connected to ST_CP of 74HC595
 const int CLOCK_PIN = 19;                       //Pin connected to SH_CP of 74HC595
-const int DATA_PIN = 5;                        //Pin connected to DS of 74HC595
+const int DATA_PIN = 5;                         //Pin connected to DS of 74HC595
 
 //uncomment to get debugging
 //#define DEBUG
 //#define DEBUG_STEPS
 //#define DEBUG_X_JOYSTICK
 //#define DEBUG_Y_JOYSTICK 
+//#define DEBUG_GPS
 /************************************************************************************************************************
 End Configurable Items
 *************************************************************************************************************************/
@@ -68,14 +62,18 @@ End Configurable Items
 /************************************************************************************************************************
 Global Variables - These should not need to change based on devices
 *************************************************************************************************************************/
-BluetoothSerial btComm;   //Bluetooth Setup
-SiderealPlanets myAstro;  //Used for calculations
+#define ALT 0               //Used for addSteps() with the alignment value
+#define AZ  1               //Used for addSteps() with the alignment value
+BluetoothSerial btComm;       //Bluetooth Setup
+SiderealPlanets myAstro;      //Used for calculations
+SiderealObjects myObjects;    //Used for GoTo Functions
+Preferences preferences;      //Stores persistent variables
 
 //button states
-int buttonState = LOW;             // the current reading from the input pin
-int lastButtonState = LOW;   // the previous reading from the input pin
-unsigned long lastDebounceTime = 0;  // the last time the output pin was toggled
-unsigned long debounceDelay = 50;    // the debounce time; increase if the output flickers
+int buttonState = LOW;                // the current reading from the input pin
+int lastButtonState = LOW;            // the previous reading from the input pin
+unsigned long lastDebounceTime = 0;   // the last time the output pin was toggled
+unsigned long debounceDelay = 50;     // the debounce time; increase if the output flickers
 
 //AltAZ motor rotation min
 const double rotationDegrees = (SINGLE_STEP_DEGREE / MOTOR_GEAR_BOX); //degrees / single step per rev / gearbox
@@ -86,7 +84,6 @@ AccelStepper xStepper = AccelStepper(MOTOR_INTERFACE_TYPE,X_STEP_PIN,X_DIRECTION
 #ifdef HAS_FOCUSER
 AccelStepper focuser = AccelStepper(FOCUS_INTERFACE_TYPE,FOCUS_STEP_PIN,FOCUS_DIRECTION_PIN);
 #endif
-
 
 float xSpeed = 0;
 float ySpeed = 0;
@@ -102,8 +99,20 @@ int stepperDivider = 1;
 
 //Menu Control
 int screenMode = 0;
-//LcdGfxMenu gpsMenu;
-
+/*
+  0 - GPS Screen
+  1 - Main Menu
+  2 - Slew Mode
+  3 - Settings Menu
+  4 - Alignment Screen
+      0 - Sync 1st Object
+      1 - Sync 2nd Object
+      2 - Sync 3rd Object
+      3 - Confirm sync
+  5 - Offsets Menu
+  6 - Goto Menu
+  7 - Planets Menu
+*/
 const char *mainMenuItems[] = 
 {
   "Move:  Disabled",
@@ -112,29 +121,91 @@ const char *mainMenuItems[] =
   #endif
   "Speed: Fast",
   "Settings",
-  "Info"
+  "Info",
+  "GoTo"
 };
+
+unsigned int speedIndex = 1;
 
 const char *settingsMenuItems[] = 
 {
   "<-- Back",
   "Alignment",
   "Offsets",
-  "GPS/Time Settings",
   "Tracking: Enabled"
 };
 
+const char *alignmentMenuItems[] =
+{
+  "Move:  Disabled",
+  "Speed: Fast",
+  "Cancel Alignment"
+};
+
+const char *offSetsMenuItems[] =
+{
+  "<-- Back",
+  "Alt:",
+  "Az: ",
+  "Reset to Default"
+};
+
+const char *gotoMenuItems[] =
+{
+  "<-- Back",
+  "Planets",
+  "Messier",
+  "Caldwell",
+  "The Moon"
+};
+
+const char *planetMenuItems[] =
+{
+  "<-- Back",
+  "Mercury",
+  "Venus",
+  "Mars",
+  "Jupiter",
+  "Saturn",
+  "Uranus",
+  "Neptune"
+};
+
+
 LcdGfxMenu mainMenu(mainMenuItems, sizeof(mainMenuItems) / sizeof(char *) );
 LcdGfxMenu settingsMenu(settingsMenuItems, sizeof(settingsMenuItems) / sizeof(char *) );
+LcdGfxMenu alignmentMenu(alignmentMenuItems, sizeof(alignmentMenuItems) / sizeof(char *) );
+LcdGfxMenu offsetsMenu(offSetsMenuItems, sizeof(offSetsMenuItems) / sizeof(char *) );
+LcdGfxYesNo alignmentConfirm("Apply new offset?");
+
+LcdGfxMenu gotoMenu(gotoMenuItems, sizeof(gotoMenuItems)/sizeof(char *));
+LcdGfxMenu planetMenu(planetMenuItems, sizeof(planetMenuItems)/sizeof(char *));
+
+//alignment Variables
+int alignmentScreen = 0;
+double alignmentAltValues[][2] = {
+  {0.0,0.0},
+  {0.0,0.0},
+  {0.0,0.0}
+};
+
+double alignmentAzValues[][2] = {
+  {0.0,0.0},
+  {0.0,0.0},
+  {0.0,0.0}
+};
+
+double alignmentAltOffset = 0.0;
+double alignmentAzOffset = 0.0;
 
 //JoyStick
 int lastYState = 0;
 int yState = 0;
 unsigned long lastYDebounceTime = 0;
-int yDeadZone = 0;
-int xDeadZone = 0;
-int maxY = ANALOG_READ_RESOLUTION;
-int maxX = ANALOG_READ_RESOLUTION;
+unsigned int yDeadZone = 0;
+unsigned int xDeadZone = 0;
+unsigned int maxY = ANALOG_READ_RESOLUTION;
+unsigned int maxX = ANALOG_READ_RESOLUTION;
 
 int lastXState = 0;
 int xState = 0;
@@ -185,11 +256,10 @@ int decD, decMM, decSS;
 //Sync coords
 double currentAlt = 0;
 double currentAz = 0;
+double moveOffsets[] = {1.0,1.0};
+double tempMoveOffsets[] = {1.0,1.0};
 
-double alt=0;
-double az=0;
-
-//Target Coords
+//Target Coords for slewing
 int targetRaHH, targetRaMM, targetRaSS;
 int targetDecD, targetDecMM, targetDecSS;
 double targetAlt;
@@ -203,6 +273,19 @@ long slewScreenUpdate = 0;
 DisplaySSD1306_128x64_I2C display(-1); // or (-1,{busId, addr, scl, sda, frequency}). This line is suitable for most platforms by default
 
 void setup() {
+  preferences.begin("scope",false);   //start up preferences
+  
+  if(preferences.isKey("altOffset")){
+    moveOffsets[ALT] = preferences.getDouble("altOffset");
+  }
+
+  if(preferences.isKey("azOffset")){
+    moveOffsets[AZ] = preferences.getDouble("azOffset");
+  }
+
+  #ifdef HAS_FOCUSER
+    speedIndex = 2;
+  #endif
   // Set all Pin Modes
   pinMode(Y_JOYSTICK_PIN, INPUT);
   pinMode(X_JOYSTICK_PIN, INPUT);
@@ -218,7 +301,7 @@ void setup() {
   #ifndef DEBUG
     Serial.begin(9600);     //USB
   #endif
-  btComm.begin(BLUETOOTH_NAME);   //Bluetooth
+  btComm.begin(MOUNT_NAME);   //Bluetooth
   Serial2.begin(9600);  //start GPS
   
   #ifdef DEBUG
@@ -251,6 +334,8 @@ void setup() {
   myAstro.setTimeZone(-8);
   myAstro.rejectDST();
 
+  myObjects.begin();
+
   #ifdef DEBUG
     Serial.println("Astro Started");
   #endif
@@ -264,9 +349,6 @@ void setup() {
   #ifdef DEBUG
     Serial.println("Screen Started");
   #endif
-  
-  display.printFixed(0,0,"Please Stand By",STYLE_NORMAL);
-  display.printFixed(0,8,"Calibrate JoySticks",STYLE_NORMAL);
 
   yDeadZone = getDeadZone(Y_JOYSTICK_PIN);
   xDeadZone = getDeadZone(X_JOYSTICK_PIN);
@@ -276,13 +358,15 @@ void setup() {
   #ifdef DEBUG
     Serial.println("Joysticks Calibrated");
   #endif
- 
-  display.printFixed(0,16,"Set Motors",STYLE_NORMAL);
+
   //set motor max
   yStepper.setMaxSpeed(MAX_MOTOR_SPEED);
   yStepper.setCurrentPosition(0);
   xStepper.setMaxSpeed(MAX_MOTOR_SPEED);
   xStepper.setCurrentPosition(0);
+  #ifdef DEBUG
+    Serial.println("Motors set");
+  #endif
 
   #ifdef HAS_FOCUSER
     focuser.setMaxSpeed(MAX_FOCUS_SPEED);
@@ -299,38 +383,58 @@ void setup() {
 void loop() {
   
   switch (screenMode){
-    case 0:
-      //GPS Mode
-        infoScreensControl();
-        if(millis() - lastGPSCheck > 10000){
-          showInfo();
-          lastGPSCheck = millis();
-        }
+    case 0: //GPS Mode
+    {
+      infoScreensControl();
+      if(millis() - lastGPSCheck > 10000){
+        showInfo();
+        lastGPSCheck = millis();
+      }
       break;
-    case 1:
-      //Main Screen
+    }        
+    case 1: //Main Screen
+    {
       movementButtonControl();
       if(!moving && !focusing){
         menuControl();
       }
-      if(moving){
-        //move if in move mode
+      if(moving){ //move if in move mode
         readJoystickAndMove();  
       }
-      if(focusing){
-        //Focusing Mode
-        readJoystickAndFocus(); 
-      }
+      #ifdef HAS_FOCUSER
+        if(focusing){ //Focusing Mode
+          readJoystickAndFocus(); 
+        }
+      #endif
       break;
-    case 2:
-      //Slew Mode
+    }      
+    case 2: //Slew Mode
+    {
       slewMode();
       infoScreensControl();
       break;
-    case 3:
-      //Settings Menu
+    }
+    case 3: //Settings Menu
+    {
       movementButtonControl();
       menuControl();
+      break;
+    }
+    case 4: //Alignment
+      movementButtonControl();
+      if(!moving && !focusing){
+        menuControl();
+      }
+      if(moving){ //move if in move mode
+        readJoystickAndMove();  
+      }  
+      break;
+    case 5: //OffsetsMenu
+    case 6: //Goto Menu
+    case 7: //Planet Menu
+      movementButtonControl();
+      menuControl();
+      break;
   }
 
   if(isTracking){
@@ -450,7 +554,8 @@ void communication(Stream &aSerial)
     
     if(input[1] == 'G' && input[2] == 'V' && input[3] == 'P'){
       //Get Telescope Name
-      aSerial.print("Arduinoscope#");
+      aSerial.print(MOUNT_NAME);
+      aSerial.print("#");
     }
 
     if(input[1] == 'G' && input[2] == 'V' && input[3] == 'N'){
@@ -558,8 +663,8 @@ void communication(Stream &aSerial)
 
     //report AZ
     if (input[1] == 'G' && input[2] == 'R') {
-      float totalAz = addSteps(-1*xStepper.currentPosition(), currentAz);
-      float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt);
+      float totalAz = addSteps(-1*xStepper.currentPosition(), currentAz, AZ);
+      float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, ALT);
       
       myAstro.setAltAz(totalAlt, totalAz);
       myAstro.doAltAz2RAdec();
@@ -572,8 +677,8 @@ void communication(Stream &aSerial)
   
     if (input[1] == 'G' && input[2] == 'D') {
 
-      float totalAz  = addSteps(-1*xStepper.currentPosition(), currentAz);
-      float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt);
+      float totalAz  = addSteps(-1*xStepper.currentPosition(), currentAz, AZ);
+      float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, ALT);
 
       myAstro.setAltAz(totalAlt, totalAz);
       myAstro.doAltAz2RAdec();
@@ -661,14 +766,113 @@ void communication(Stream &aSerial)
 
       setCurrentPositions();
             
-      
       myAstro.setRAdec(myAstro.decimalDegrees(raHH, raMM, raSS), myAstro.decimalDegrees(decD, decMM, decSS));
       
       myAstro.doRAdec2AltAz();
-      currentAlt = myAstro.getAltitude();
-      currentAz = myAstro.getAzimuth();
       
-      synced = true;
+      if(screenMode == 4){ //alignment section
+        
+        
+        if(alignmentScreen < 3){
+
+          if(alignmentScreen == 0){
+            currentAlt = myAstro.getAltitude();
+            currentAz = myAstro.getAzimuth();
+            synced = true;
+          }
+          
+          alignmentAltValues[alignmentScreen][0] = myAstro.getAltitude();
+          alignmentAltValues[alignmentScreen][1] = currentAlt;
+          alignmentAzValues[alignmentScreen][0] = myAstro.getAzimuth();
+          alignmentAzValues[alignmentScreen][1] = currentAz;
+
+          currentAlt = myAstro.getAltitude();
+          currentAz = myAstro.getAzimuth();
+
+          synced = true;
+
+          alignmentScreen++;
+        }
+        
+        if(alignmentScreen == 3){
+          moving = false;
+          alignmentMenuItems[0] = "Move:  Disabled";
+          double alignmentAlt1 = alignmentAltValues[1][0] - alignmentAltValues[0][0];
+          while(alignmentAlt1 < 0){
+            alignmentAlt1 += 360;
+          }
+          while(alignmentAlt1 > 360){
+            alignmentAlt1 -= 360;
+          }
+
+          double alignmentAlt2 = alignmentAltValues[2][0] - alignmentAltValues[1][0];
+          while(alignmentAlt2 < 0){
+            alignmentAlt2 += 360;
+          }
+          while(alignmentAlt2 > 360){
+            alignmentAlt2 -= 360;
+          }
+
+          double currentAlt1 = alignmentAltValues[1][1] - alignmentAltValues[0][1];
+          while(currentAlt1 < 0){
+            currentAlt1 += 360;
+          }
+          while(currentAlt1 > 360){
+            currentAlt1 -= 360;
+          }
+
+          double currentAlt2 = alignmentAltValues[2][1] - alignmentAltValues[1][1];
+          while(currentAlt2 < 0){
+            currentAlt2 += 360;
+          }
+          while(currentAlt2 > 360){
+            currentAlt2 -= 360;
+          }
+          
+          alignmentAltOffset = 1 + ((abs(alignmentAlt1/currentAlt1) - abs(alignmentAlt2/currentAlt2))/2);
+
+          double alignmentAz1 = alignmentAzValues[1][0] - alignmentAzValues[0][0];
+          while(alignmentAz1 < 0){
+            alignmentAz1 += 360;
+          }
+          while(alignmentAz1 > 360){
+            alignmentAz1 -= 360;
+          }
+
+          double alignmentAz2 = alignmentAzValues[2][0] - alignmentAzValues[1][0];
+          while(alignmentAz2 < 0){
+            alignmentAz2 += 360;
+          }
+          while(alignmentAz2 > 360){
+            alignmentAz2 -= 360;
+          }
+
+          double currentAz1 = alignmentAzValues[1][1] - alignmentAzValues[0][1];
+          while(currentAz1 < 0){
+            currentAz1 += 360;
+          }
+          while(currentAz1 > 360){
+            currentAz1 -= 360;
+          }
+
+          double currentAz2 = alignmentAzValues[2][1] - alignmentAzValues[1][1];
+          while(currentAz2 < 0){
+            currentAz2 += 360;
+          }
+          while(currentAz2 > 360){
+            currentAz2 -= 360;
+          }
+
+          alignmentAzOffset = 1 + ((abs(alignmentAz1/currentAz1) - abs(alignmentAz2/currentAz2))/2);
+          showAlignmentConfirm();
+        }else{
+          showAlignmentMenu();
+        }
+      }else{
+        currentAlt = myAstro.getAltitude();
+        currentAz = myAstro.getAzimuth();
+        synced = true;
+      }
       
       aSerial.print(1);      
     }
@@ -771,8 +975,8 @@ void slewMode(){
   targetAlt = myAstro.getAltitude();
   targetAz = myAstro.getAzimuth();
   
-  float totalAz  = addSteps(-1*xStepper.currentPosition(), currentAz);
-  float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt);
+  float totalAz  = addSteps(-1*xStepper.currentPosition(), currentAz, AZ);
+  float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, ALT);
   
   double remainingAlt = targetAlt - totalAlt;
   double remainingAz;
@@ -839,7 +1043,7 @@ void slewMode(){
         if(slewComplete){
           display.clear();
           display.printFixed(0, 0, "Slew Complete!", STYLE_NORMAL);
-          display.printFixed(0, 0, "Press the button to return to main menu.", STYLE_NORMAL);
+          display.printFixed(0, 16, "Press the button to return to main menu.", STYLE_NORMAL);
           slewScreenTimeOut = 60000;
         }else{
           
@@ -905,7 +1109,7 @@ void getGPS(){
     flon = gps.location.lng();
     
     myAstro.setLatLong((double)flat, (double)flon);
-    #ifdef DEBUG
+    #ifdef DEBUG_GPS
       Serial.println("Location Updated");
       Serial.print("Lat: ");
       Serial.println(flat,6);
@@ -919,7 +1123,7 @@ void getGPS(){
     faltitude = gps.altitude.meters();
     myAstro.setElevationM((double)faltitude);
 
-    #ifdef DEBUG
+    #ifdef DEBUG_GPS
       Serial.print("Alt: ");
       Serial.println(faltitude,6);
     #endif
@@ -928,7 +1132,7 @@ void getGPS(){
   
   sats = gps.satellites.value();
 
-  #ifdef DEBUG
+  #ifdef DEBUG_GPS
       Serial.print("Sats: ");
       Serial.println(sats);
     #endif
@@ -939,7 +1143,7 @@ void getGPS(){
     myAstro.setGMTtime(gps.time.hour(), gps.time.minute(), gps.time.second());
     myAstro.useAutoDST();
     
-    #ifdef DEBUG
+    #ifdef DEBUG_GPS
       Serial.print("Date: ");
       Serial.print(gps.date.month());
       Serial.print("/");
@@ -952,13 +1156,18 @@ void getGPS(){
       Serial.print(gps.time.minute());
       Serial.print(":");
       Serial.println(gps.time.second(),2);
-    #endif
-    
+    #endif 
   }
-  
 }
 
+void gotoNotReady(){
+  screenMode = 0;
+  display.clear();
+  display.printFixed(0, 0,  "Goto Unavailable.", STYLE_NORMAL);
+  display.printFixed(0, 8,  "Please sync first.", STYLE_NORMAL);
+  display.printFixed(0, 16, "Press the button to return to main menu.", STYLE_NORMAL);
 
+}
 
 void showInfo(){
   screenMode = 0;
@@ -1009,8 +1218,6 @@ void showInfo(){
   //Local Time
   sprintf(charPrint, "UTC Time: %02d:%02d", hour(), minute());
   display.printFixed(0,32, charPrint, STYLE_NORMAL);
-  
-  
 }
 
 void infoScreensControl(){
@@ -1033,7 +1240,7 @@ void infoScreensControl(){
       //Clear and return to main menu
       if (buttonState == LOW) {
         
-        returnToMainMenu();
+        showMainMenu();
       }
       
     }
@@ -1042,7 +1249,7 @@ void infoScreensControl(){
   lastButtonState = reading;
 }
 
-void returnToMainMenu(){
+void showMainMenu(){
   display.clear();
   if(!slewComplete){
     slewComplete = true;
@@ -1054,10 +1261,72 @@ void returnToMainMenu(){
   mainMenu.show( display );
 }
 
-void returnToSettingsMenu(){
+void showSettingsMenu(){
   display.clear();
   screenMode = 3;
   settingsMenu.show( display );
+}
+
+void showAlignmentMenu(){
+  display.clear();
+  switch(alignmentScreen){
+    case 0:
+      alignmentMenu.show(display);
+      display.printFixed(8,  40, "Align with first", STYLE_NORMAL);
+      display.printFixed(8,  48, "object then sync", STYLE_NORMAL);
+      break;
+    case 1:
+      alignmentMenu.show(display);
+      display.printFixed(8,  40, "Align with second", STYLE_NORMAL);
+      display.printFixed(8,  48, "object then sync", STYLE_NORMAL);
+      break;
+    case 2:
+      alignmentMenu.show(display);
+      display.printFixed(8,  40, "Align with third", STYLE_NORMAL);
+      display.printFixed(8,  48, "object then sync", STYLE_NORMAL);
+      break;
+    case 4:
+      display.printFixed(4,  0,  "Cannot align", STYLE_NORMAL);
+      display.printFixed(4,  8,  "GPS not acquired", STYLE_NORMAL);
+      display.printFixed(4,  16, "Please try again", STYLE_NORMAL);
+      display.printFixed(4,  24, "when GPS is ready", STYLE_NORMAL);
+      break;
+  }
+}
+
+void showAlignmentConfirm(){
+  display.clear();
+  alignmentConfirm.show(display);
+  char output[16];
+  snprintf(output, 16, "Alt:%f", alignmentAltOffset);
+
+  display.printFixed(4, 20,  output, STYLE_NORMAL);
+  snprintf(output, 16, "Az:%f", alignmentAzOffset);
+  display.printFixed(4, 28,  output, STYLE_NORMAL);
+}
+
+void showOffsetsMenu(){
+  screenMode = 5;
+  display.clear();
+  char output[16];
+  sprintf(output, "Alt: %f", moveOffsets[ALT]);
+  offSetsMenuItems[1] = output;
+  char output2[16];
+  sprintf(output2, "Az:  %f", moveOffsets[AZ]);
+  offSetsMenuItems[2] = output2;
+  offsetsMenu.show(display);
+}
+
+void showGotoMenu(){
+  screenMode = 6;
+  display.clear();
+  gotoMenu.show(display); 
+}
+
+void showPlanetsMenu(){
+  screenMode = 7;
+  display.clear();
+  planetMenu.show(display);
 }
 
 void movementButtonControl(){
@@ -1091,14 +1360,13 @@ void movementButtonControl(){
               #endif
 
               switch(selected){
-                case 0:
+                case 0: //Move
                 {
                   if(moving){
                     mainMenuItems[0] = "Move:  Disabled";
                     mainMenu.show(display);  
                     setTrack();
                   }else{
-                    //display.printFixed(55,  8, "Enabled ", STYLE_NORMAL);
                     mainMenuItems[0] = "Move:  Enabled";
                     mainMenu.show(display);
                     if(isTracking){
@@ -1114,17 +1382,18 @@ void movementButtonControl(){
                 {
                   if(focusing){
                     focusing = false;
-                    display.printFixed(55,  24, "Disabled", STYLE_NORMAL);
+                    mainMenuItems[1] = "Focus: Disabled";
                   }else{
-                    display.printFixed(55,  16, "Enabled ", STYLE_NORMAL);
+                    mainMenuItems[1] = "Focus: Enabled";
                     focusing = true;
                   }
+                  mainMenu.show(display);
                   break;
                 }
 
                 case 3: //Settings
                 {
-                  returnToSettingsMenu();
+                  showSettingsMenu();
                   break;
                 }
 
@@ -1133,13 +1402,115 @@ void movementButtonControl(){
                   showInfo();
                   break;
                 }
+
+                case 5: //Show Goto
+                {
+                  showGotoMenu();
+                  break;
+                }
               }
               break;
             }
-          case 3:
+          case 3: //Settings
             switch(settingsMenu.selection()){
               case 0:
-                returnToMainMenu();
+                showMainMenu();
+                break;
+              case 1:
+                if(flat != 0 && flon != 0){
+                  alignmentScreen = 0;
+                  tempMoveOffsets[0] = moveOffsets[0];
+                  tempMoveOffsets[1] = moveOffsets[1];
+                  moveOffsets[0] = 1.0;
+                  moveOffsets[1] = 1.0;
+                }else{
+                  alignmentScreen = 4;
+                }
+                screenMode = 4;
+                
+                showAlignmentMenu();
+                break;
+              case 2:
+                showOffsetsMenu();
+                break;
+              case 3:
+                //Set Tracking
+                if(tracking){
+                  settingsMenuItems[3] = "Tracking: Disabled";
+                  tracking = false;
+                }else{
+                  settingsMenuItems[3] = "Tracking: Enabled";
+                  tracking = true;
+                }
+                showSettingsMenu();
+                break;
+            }
+            break;
+          case 4: //Alignment
+            switch(alignmentScreen){
+              case 0:
+              case 1:
+              case 2:
+                switch(alignmentMenu.selection()){
+                  case 0:
+                    if(moving){
+                      alignmentMenuItems[0] = "Move:  Disabled";
+                      setTrack();
+                    }else{
+                      //display.printFixed(55,  8, "Enabled ", STYLE_NORMAL);
+                      alignmentMenuItems[0] = "Move:  Enabled";
+                      
+                      if(isTracking){
+                        stepperSpeed = preTrackStepperSpeed;
+                      }
+                      moving = true;
+                      isTracking = false;
+                    }
+                    showAlignmentMenu();
+                    break;
+                  case 2:
+                    showSettingsMenu();
+                    break;
+                }
+                break;
+              case 3:
+                if(alignmentConfirm.isYes()){
+                  moveOffsets[ALT] = alignmentAltOffset;
+                  moveOffsets[AZ] =  alignmentAzOffset;
+                  preferences.putDouble("altOffset", moveOffsets[ALT]);
+                  preferences.putDouble("azOffset", moveOffsets[AZ]);
+                }else{
+                  moveOffsets[0] = tempMoveOffsets[0];
+                  moveOffsets[1] = tempMoveOffsets[1];
+                }
+                showSettingsMenu();
+                break;
+              case 4:
+                showSettingsMenu();
+                break;
+            }
+            break;
+          case 5: //offsets
+            switch(offsetsMenu.selection()){
+              case 0:
+                showSettingsMenu();
+                break;
+              case 3:
+                moveOffsets[ALT] = 1.0;
+                moveOffsets[AZ] =  1.0;
+                preferences.putDouble("altOffset", 1.0);
+                preferences.putDouble("azOffset", 1.0);
+                showOffsetsMenu();
+                break;
+            }
+            break;
+          case 6: //Goto
+            switch(gotoMenu.selection()){
+              case 0:
+                showMainMenu();
+                break;
+              case 1:
+                showPlanetsMenu();
                 break;
             }
             break;
@@ -1214,6 +1585,20 @@ void menuControl(){
             settingsMenu.down();
             settingsMenu.show(display);
             break;
+          case 4:
+            if(alignmentScreen < 3){
+              alignmentMenu.down();
+              showAlignmentMenu();
+            }            
+            break;
+          case 5:
+            offsetsMenu.down();
+            showOffsetsMenu();
+            break;
+          case 6:
+            gotoMenu.down();
+            gotoMenu.show(display);
+            break;
         }
       }else if(y == 1){
         switch(screenMode){
@@ -1224,6 +1609,20 @@ void menuControl(){
           case 3:
             settingsMenu.up();
             settingsMenu.show(display);
+            break;
+          case 4:
+            if(alignmentScreen < 3){
+              alignmentMenu.up();
+              showAlignmentMenu();
+            }            
+            break;
+          case 5:
+            offsetsMenu.up();
+            showOffsetsMenu();
+            break;
+          case 6:
+            gotoMenu.up();
+            gotoMenu.show(display);
             break;
         }
       }
@@ -1257,24 +1656,24 @@ void menuControl(){
       switch(screenMode){
         case 1:
           //Setting Speed
-          #ifdef HAS_FOCUSER
-            unsigned int speedIndex = 2;
-          #endif
-          #ifndef HAS_FOCUSER
-            unsigned int speedIndex = 1;
-          #endif
-
           if(speedIndex == mainMenu.selection()){
-            isTracking = false;
-            stepperSpeed += x;
-            if(stepperSpeed < 0){
-              stepperSpeed = 3;
-            }
-            if(stepperSpeed > 3){
-              stepperSpeed = 0;
-            }
-            preTrackStepperSpeed = stepperSpeed;
+            toggleStepperSpeed(x);
           }
+          break;
+        case 4:
+          if(alignmentScreen < 3){
+            if(alignmentMenu.selection() == 1){
+              toggleStepperSpeed(x);
+            }
+          }else{
+            if(x < 0){
+              alignmentConfirm.swapToNo();
+            }else if(x > 0){
+              alignmentConfirm.swapToYes();
+            }
+            showAlignmentConfirm();
+          }
+          
           break;
       }
     }
@@ -1282,32 +1681,46 @@ void menuControl(){
   lastXState = x;
 }
 
-void readJoystickAndFocus(){
-  
-  int x = getXStick();
-
-  int aXSpeed = 0;
-  
-  if(x > xDeadZone + 50){
-    //Top Speed: 1000?
-    aXSpeed = map(x, (xDeadZone + 50), (xDeadZone * 2), 0, MAX_FOCUS_SPEED * X_INVERT); //TODO Fix for xMax
-    xMoving = true;    
-  }else if(x < xDeadZone - 50){
-    //Top Speed: 1000?
-    aXSpeed = map(x, (xDeadZone - 50),0,0, -MAX_FOCUS_SPEED * X_INVERT);
-    xMoving = true;
-  }else{
-    xMoving = false;
+void toggleStepperSpeed(int x){
+  isTracking = false;
+  stepperSpeed += x;
+  if(stepperSpeed < 0){
+    stepperSpeed = 3;
   }
-
-  if(xMoving){
-    setFSpeed(aXSpeed);
-  }else{
-    setFSpeed(0);
+  if(stepperSpeed > 3){
+    stepperSpeed = 0;
   }
-
-  xLastMoving = xMoving;
+  preTrackStepperSpeed = stepperSpeed;
 }
+
+#ifdef HAS_FOCUSER
+  void readJoystickAndFocus(){
+    
+    int x = getXStick();
+
+    int aXSpeed = 0;
+    
+    if(x > xDeadZone + 50){
+      //Top Speed: 1000?
+      aXSpeed = map(x, (xDeadZone + 50), (xDeadZone * 2), 0, MAX_FOCUS_SPEED * X_INVERT); //TODO Fix for xMax
+      xMoving = true;    
+    }else if(x < xDeadZone - 50){
+      //Top Speed: 1000?
+      aXSpeed = map(x, (xDeadZone - 50),0,0, -MAX_FOCUS_SPEED * X_INVERT);
+      xMoving = true;
+    }else{
+      xMoving = false;
+    }
+
+    if(xMoving){
+      setFSpeed(aXSpeed);
+    }else{
+      setFSpeed(0);
+    }
+
+    xLastMoving = xMoving;
+  }
+#endif
 
 
 void readJoystickAndMove(){
@@ -1361,10 +1774,10 @@ void readJoystickAndMove(){
   
 }
 
-double addSteps(int steps, double inDegrees){
+double addSteps(int steps, double inDegrees, int altAz){
   double fSteps = double(steps);
   //fSteps = -1 * fSteps;
-  double degree = ((fSteps * rotationDegrees)/GEAR_RATIO)/stepperDivider;
+  double degree = (moveOffsets[altAz]) * ((fSteps * rotationDegrees)/GEAR_RATIO)/stepperDivider;
   
   double outDegrees = inDegrees + degree;
 
@@ -1379,10 +1792,10 @@ double addSteps(int steps, double inDegrees){
 }
 
 void setCurrentPositions(){
-  currentAz = addSteps(-1*xStepper.currentPosition(), currentAz);
+  currentAz = addSteps(-1*xStepper.currentPosition(), currentAz, AZ);
   xStepper.setCurrentPosition(0);
   
-  currentAlt = addSteps(-1*yStepper.currentPosition(), currentAlt);
+  currentAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, ALT);
   yStepper.setCurrentPosition(0);
 }
 
@@ -1410,6 +1823,7 @@ void setStepperSpeed(){
         digitalWrite(LATCH_PIN, HIGH);
         stepperDivider = 32;
         mainMenuItems[speedMenuIndex] = "Speed: Fine";
+        alignmentMenuItems[1] = "Speed: Fine";
         break;
       // 1/16 - Slow
       case 1:
@@ -1418,6 +1832,7 @@ void setStepperSpeed(){
         digitalWrite(LATCH_PIN, HIGH);
         stepperDivider = 16;
         mainMenuItems[speedMenuIndex] = "Speed: Slow";
+        alignmentMenuItems[1] = "Speed: Slow";
         break;
       // 1/8 - Med (HIGH, HIGH, LOW)
       case 2:      
@@ -1426,6 +1841,7 @@ void setStepperSpeed(){
         digitalWrite(LATCH_PIN, HIGH);
         stepperDivider = 8;
         mainMenuItems[speedMenuIndex] = "Speed: Medium";
+        alignmentMenuItems[1] = "Speed: Medium";
         break;
       // 1/4 - Fast (Low, High, Low)
       case 3:
@@ -1434,11 +1850,15 @@ void setStepperSpeed(){
         digitalWrite(LATCH_PIN, HIGH);
         stepperDivider = 4;
         mainMenuItems[speedMenuIndex] = "Speed: Fast";
+        alignmentMenuItems[1] = "Speed: Fast";
         break;
     }
 
     if(screenMode == 1){
       mainMenu.show(display);
+    }
+    if(screenMode == 4){
+      alignmentMenu.show(display);
     }
   }
   
@@ -1510,8 +1930,8 @@ void doTrack(){
 
   if(millis() - lastTrack > 1000){
 
-    float totalAz = addSteps(-1*xStepper.currentPosition(), currentAz);
-    float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt);
+    float totalAz = addSteps(-1*xStepper.currentPosition(), currentAz, AZ);
+    float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, ALT);
     
     myAstro.setAltAz(totalAlt, totalAz);
     myAstro.doAltAz2RAdec();
@@ -1610,3 +2030,14 @@ void printDouble( double val, unsigned int precision){
 
     Serial.println(frac,DEC) ;
 }
+
+/* Hand Held - Ethernet Pinout
+8 - Brown -       3V
+7 - Brown/White - GND
+6 - Green -       5V
+5 - Blue/White -  D32 Button Pin
+4 - Blue -        D35 X Joystick 
+3 - Green/White - D34 Y Joystick
+2 - Orange -      D22
+1 - Orange/White -D21
+*/
