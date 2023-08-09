@@ -11,11 +11,11 @@
 /************************************************************************************************************************
 Start Configurable Items
 *************************************************************************************************************************/
-#define MOUNT_NAME "Tripod_Mount"           //Name of the Bluetooth Serial
-const int GEAR_RATIO = 1;                       //where 1 is no gearing (ex. 300 Tooth gear / 20 tooth gear = 15)
+#define MOUNT_NAME "Telescope"           //Name of the Bluetooth Serial
+const int GEAR_RATIO = 15;                       //where 1 is no gearing (ex. 300 Tooth gear / 20 tooth gear = 15)
 const double SINGLE_STEP_DEGREE =  360.0 / 200.0;    // the motor has 200 regular steps for 360 degrees (360 divided by 200 = 1.8)
 const double MOTOR_GEAR_BOX = (26.0 + (103.0/121.0)); //where 1 is no gearing (26 + (103/121)) planetary gearbox version
-const float MAX_MOTOR_SPEED = 250;              //250 is probably good without GEAR_RATIO >1, 3000 is good 
+const float MAX_MOTOR_SPEED = 3000;              //250 is probably good without GEAR_RATIO >1, 3000 is good 
 
 //Define Motor setup
 const int Y_DIRECTION_PIN = 13;                 //ALT Driver Dir
@@ -35,7 +35,7 @@ const int BUTTON_PIN = 32;                      //button on Remotes
 const int ANALOG_READ_RESOLUTION = 4095;        //ESP32 has this resolution, other chips may vary
 
 //Comment Out HAS_FOCUSER for no Focuser
-//#define HAS_FOCUSER
+#define HAS_FOCUSER
 
 #ifdef HAS_FOCUSER
   const int FOCUS_DIRECTION_PIN = 2;
@@ -112,6 +112,7 @@ int screenMode = 0;
   5 - Offsets Menu
   6 - Goto Menu
   7 - Planets Menu
+  8 - Target Below Horizon
 */
 const char *mainMenuItems[] = 
 {
@@ -414,12 +415,7 @@ void loop() {
       infoScreensControl();
       break;
     }
-    case 3: //Settings Menu
-    {
-      movementButtonControl();
-      menuControl();
-      break;
-    }
+    
     case 4: //Alignment
       movementButtonControl();
       if(!moving && !focusing){
@@ -429,9 +425,11 @@ void loop() {
         readJoystickAndMove();  
       }  
       break;
+    case 3: //Settings Menu
     case 5: //OffsetsMenu
     case 6: //Goto Menu
     case 7: //Planet Menu
+    case 8: //Target Below Horizon
       movementButtonControl();
       menuControl();
       break;
@@ -938,23 +936,7 @@ void communication(Stream &aSerial)
       targetDecMM = decMM;
       targetDecSS = decSS;
       
-      screenMode = 2;
-      stepperSpeed = 3;
-
-      //get ready to move fast
-      slewComplete = false;
-      isTracking = false;
-      slewScreenTimeOut = 2000;
-      slewScreenUpdate = millis();
-
-      display.clear();
-
-      display.printFixed(0, 0,  "Current Alt:", STYLE_NORMAL);
-      display.printFixed(0, 8,  "Current Az: ", STYLE_NORMAL);
-      display.printFixed(0, 16, "Target Alt: ", STYLE_NORMAL);
-      display.printFixed(0, 24, "Target Az:  ", STYLE_NORMAL);
-      display.printFixed(0, 32, "Remain Alt: ", STYLE_NORMAL);
-      display.printFixed(0, 40, "Remain Az:  ", STYLE_NORMAL);
+      startSlew();
       
       aSerial.print(1);
     }
@@ -966,6 +948,26 @@ void communication(Stream &aSerial)
   }
 }
 
+void startSlew(){
+  screenMode = 2;
+  stepperSpeed = 3;
+
+  //get ready to move fast
+  slewComplete = false;
+  isTracking = false;
+  slewScreenTimeOut = 2000;
+  slewScreenUpdate = millis();
+
+  display.clear();
+
+  display.printFixed(0, 0,  "Current Alt:", STYLE_NORMAL);
+  display.printFixed(0, 8,  "Current Az: ", STYLE_NORMAL);
+  display.printFixed(0, 16, "Target Alt: ", STYLE_NORMAL);
+  display.printFixed(0, 24, "Target Az:  ", STYLE_NORMAL);
+  display.printFixed(0, 32, "Remain Alt: ", STYLE_NORMAL);
+  display.printFixed(0, 40, "Remain Az:  ", STYLE_NORMAL);
+}
+
 
 
 void slewMode(){
@@ -975,8 +977,8 @@ void slewMode(){
   targetAlt = myAstro.getAltitude();
   targetAz = myAstro.getAzimuth();
   
-  float totalAz  = addSteps(-1*xStepper.currentPosition(), currentAz, AZ);
-  float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, ALT);
+  double totalAz  = addSteps(-1*xStepper.currentPosition(), currentAz, AZ);
+  double totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, ALT);
   
   double remainingAlt = targetAlt - totalAlt;
   double remainingAz;
@@ -1329,6 +1331,15 @@ void showPlanetsMenu(){
   planetMenu.show(display);
 }
 
+void showTargetNotVisible(){
+  screenMode = 8;
+  display.clear();
+  display.printFixed(0, 0,  "Target is below", STYLE_NORMAL);
+  display.printFixed(0, 8,  "the horizon", STYLE_NORMAL);
+  display.printFixed(0, 16, "Press button to", STYLE_NORMAL);
+  display.printFixed(0, 24, "return to GoTo menu.", STYLE_NORMAL);
+}
+
 void movementButtonControl(){
   //Read button press
   int reading = digitalRead(BUTTON_PIN);
@@ -1514,6 +1525,29 @@ void movementButtonControl(){
                 break;
             }
             break;
+          case 7: //Planets
+            if(planetMenu.selection() == 0){
+              showGotoMenu();
+            }else{
+              myAstro.doPlans(planetMenu.selection());
+              myAstro.doRAdec2AltAz();
+              if(myAstro.getAltitude() > 0){          
+                targetRaHH = getRaHH(myAstro.getRAdec());
+                targetRaMM = getRaMM(myAstro.getRAdec());
+                targetRaSS = getRaSS(myAstro.getRAdec());
+
+                targetDecD = getDecDeg(myAstro.getDeclinationDec());
+                targetDecMM = getDecMM(myAstro.getDeclinationDec());
+                targetDecSS = getDecSS(myAstro.getDeclinationDec());
+                startSlew();
+              }else{
+                showTargetNotVisible();
+              }
+            }
+            break;
+          case 8:
+            showGotoMenu();
+            break;
         }
       }
     }
@@ -1599,6 +1633,10 @@ void menuControl(){
             gotoMenu.down();
             gotoMenu.show(display);
             break;
+          case 7:
+            planetMenu.down();
+            planetMenu.show(display);
+            break;
         }
       }else if(y == 1){
         switch(screenMode){
@@ -1623,6 +1661,10 @@ void menuControl(){
           case 6:
             gotoMenu.up();
             gotoMenu.show(display);
+            break;
+          case 7:
+            planetMenu.up();
+            planetMenu.show(display);
             break;
         }
       }
@@ -1866,48 +1908,48 @@ void setStepperSpeed(){
   
 }
 
-int getRaHH(float inRa){
+int getRaHH(double inRa){
   return int(inRa);
 }
 
-int getRaMM(float inRa){
+int getRaMM(double inRa){
   float aRa = abs(inRa);
   int aRaHH = getRaHH(aRa);
   return int(((aRa)-aRaHH)*60);
 }
 
-int getRaSS(float inRa){
-  float aRa = abs(inRa);
+int getRaSS(double inRa){
+  double aRa = abs(inRa);
   int aRaHH = getRaHH(aRa);
   int aRaMM = getRaMM(aRa);
   return int(((((aRa)-aRaHH)*60)-aRaMM)*60);
 }
 
-float getDec(int deg, int mm, int sec){
-  float outDec;
+double getDec(int deg, int mm, int sec){
+  double outDec;
   if(deg < 0){
-    outDec = float(deg) - (float(mm)/60) - (float(sec)/3600);
+    outDec = double(deg) - (double(mm)/60) - (double(sec)/3600);
   }else{
-    outDec = float(deg) + (float(mm)/60) + (float(sec)/3600);
+    outDec = double(deg) + (double(mm)/60) + (double(sec)/3600);
   }
 
   return outDec;
    
 }
 
-int getDecDeg(float inDec){
+int getDecDeg(double inDec){
   
   return int(abs(inDec));
 }
 
-int getDecMM(float inDec){
-  float aDec = abs(inDec);
+int getDecMM(double inDec){
+  double aDec = abs(inDec);
   int aDeg = getDecDeg(aDec);
   return abs(int((aDec - aDeg)*60));
 }
 
-int getDecSS(float inDec){
-  float aDec = abs(inDec);
+int getDecSS(double inDec){
+  double aDec = abs(inDec);
   int aDeg = getDecDeg(aDec);
   int aMM = getDecMM(aDec);
 
@@ -1930,14 +1972,14 @@ void doTrack(){
 
   if(millis() - lastTrack > 1000){
 
-    float totalAz = addSteps(-1*xStepper.currentPosition(), currentAz, AZ);
-    float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, ALT);
+    double totalAz = addSteps(-1*xStepper.currentPosition(), currentAz, AZ);
+    double totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, ALT);
     
     myAstro.setAltAz(totalAlt, totalAz);
     myAstro.doAltAz2RAdec();
 
-    float aDec = myAstro.getDeclinationDec();
-    float aRa = myAstro.getRAdec();
+    double aDec = myAstro.getDeclinationDec();
+    double aRa = myAstro.getRAdec();
 
     adjustTime(-10);
 
