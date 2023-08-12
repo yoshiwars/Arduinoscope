@@ -11,11 +11,11 @@
 /************************************************************************************************************************
 Start Configurable Items
 *************************************************************************************************************************/
-#define MOUNT_NAME "Telescope"           //Name of the Bluetooth Serial
-const int GEAR_RATIO = 15;                       //where 1 is no gearing (ex. 300 Tooth gear / 20 tooth gear = 15)
+#define MOUNT_NAME "TripodMount"                    //Name of the Bluetooth Serial
+const int GEAR_RATIO = 1;                       //where 1 is no gearing (ex. 300 Tooth gear / 20 tooth gear = 15), 15 Telescope, 1 Binoc
 const double SINGLE_STEP_DEGREE =  360.0 / 200.0;    // the motor has 200 regular steps for 360 degrees (360 divided by 200 = 1.8)
 const double MOTOR_GEAR_BOX = (26.0 + (103.0/121.0)); //where 1 is no gearing (26 + (103/121)) planetary gearbox version
-const float MAX_MOTOR_SPEED = 3000;              //250 is probably good without GEAR_RATIO >1, 3000 is good 
+const float MAX_MOTOR_SPEED = 250;              //250 is probably good without GEAR_RATIO >1, 3000 Telescope, 250 Binoc 
 
 //Define Motor setup
 const int Y_DIRECTION_PIN = 13;                 //ALT Driver Dir
@@ -27,7 +27,7 @@ const int MOTOR_INTERFACE_TYPE = 1;             //AccelStepper Motor Type 1
 
 //Define Remote setup
 const int Y_JOYSTICK_PIN = 34;                  //Up/Down Pin on the Remote
-const int Y_INVERT = -1;                        //1 is normal, -1 inverted
+const int Y_INVERT = -1;                        //1 is normal, -1 inverted , binoc -1, telescope 1
 const int X_JOYSTICK_PIN = 35;                  //Left/Right Pin on the remote
 const int X_INVERT = -1;                        //1 is normal, -1 inverted
 
@@ -35,7 +35,7 @@ const int BUTTON_PIN = 32;                      //button on Remotes
 const int ANALOG_READ_RESOLUTION = 4095;        //ESP32 has this resolution, other chips may vary
 
 //Comment Out HAS_FOCUSER for no Focuser
-#define HAS_FOCUSER
+//#define HAS_FOCUSER
 
 #ifdef HAS_FOCUSER
   const int FOCUS_DIRECTION_PIN = 2;
@@ -74,6 +74,9 @@ int buttonState = LOW;                // the current reading from the input pin
 int lastButtonState = LOW;            // the previous reading from the input pin
 unsigned long lastDebounceTime = 0;   // the last time the output pin was toggled
 unsigned long debounceDelay = 50;     // the debounce time; increase if the output flickers
+unsigned long longPressTime = 500;
+bool longYPressActive = false;
+bool longXPressActive = false;
 
 //AltAZ motor rotation min
 const double rotationDegrees = (SINGLE_STEP_DEGREE / MOTOR_GEAR_BOX); //degrees / single step per rev / gearbox
@@ -98,7 +101,7 @@ int preTrackStepperSpeed = 3;
 int stepperDivider = 1;
 
 //Menu Control
-int screenMode = 0;
+unsigned int screenMode = 0;
 /*
   0 - GPS Screen
   1 - Main Menu
@@ -114,6 +117,7 @@ int screenMode = 0;
   7 - Planets Menu
   8 - Target Below Horizon
 */
+unsigned int returnScreenMode = 0;
 const char *mainMenuItems[] = 
 {
   "Move:  Disabled",
@@ -155,8 +159,8 @@ const char *gotoMenuItems[] =
 {
   "<-- Back",
   "Planets",
-  "Messier",
-  "Caldwell",
+  "Messier: M1",
+  "Caldwell: 1",
   "The Moon"
 };
 
@@ -172,6 +176,7 @@ const char *planetMenuItems[] =
   "Neptune"
 };
 
+unsigned int messierObject = 1;
 
 LcdGfxMenu mainMenu(mainMenuItems, sizeof(mainMenuItems) / sizeof(char *) );
 LcdGfxMenu settingsMenu(settingsMenuItems, sizeof(settingsMenuItems) / sizeof(char *) );
@@ -214,9 +219,7 @@ unsigned long lastXDebounceTime = 0;
 
 bool moving = false;
 bool yMoving = false;
-bool yLastMoving = false;
 bool xMoving = false;
-bool xLastMoving = false;
 
 bool focusing = false;
 
@@ -473,6 +476,11 @@ void accelerateFocus(){
   }else{
     realFSpeed = fSpeed;
   }
+
+  #ifdef DEBUG_X_JOYSTICK
+    Serial.print("X:");
+    Serial.println(realFSpeed);
+  #endif
   
   focuser.setSpeed(realFSpeed);
   
@@ -1331,13 +1339,26 @@ void showPlanetsMenu(){
   planetMenu.show(display);
 }
 
-void showTargetNotVisible(){
+void showTargetNotVisible(int returnToScreen){
   screenMode = 8;
   display.clear();
   display.printFixed(0, 0,  "Target is below", STYLE_NORMAL);
   display.printFixed(0, 8,  "the horizon", STYLE_NORMAL);
   display.printFixed(0, 16, "Press button to", STYLE_NORMAL);
   display.printFixed(0, 24, "return to GoTo menu.", STYLE_NORMAL);
+  returnScreenMode = returnToScreen;
+}
+
+
+void returnToScreenMode(){
+  switch(returnScreenMode){
+    case 6:
+      showGotoMenu();
+      break;
+    case 7:
+      showPlanetsMenu();
+      break;
+  }
 }
 
 void movementButtonControl(){
@@ -1523,6 +1544,40 @@ void movementButtonControl(){
               case 1:
                 showPlanetsMenu();
                 break;
+              case 2: //Messier Objects
+                myObjects.selectMessierTable(messierObject);
+                myAstro.setRAdec(myObjects.getRAdec(), myObjects.getDeclinationDec());
+                myAstro.doRAdec2AltAz();
+                if(myAstro.getAltitude() > 0){          
+                  targetRaHH = getRaHH(myAstro.getRAdec());
+                  targetRaMM = getRaMM(myAstro.getRAdec());
+                  targetRaSS = getRaSS(myAstro.getRAdec());
+
+                  targetDecD = getDecDeg(myAstro.getDeclinationDec());
+                  targetDecMM = getDecMM(myAstro.getDeclinationDec());
+                  targetDecSS = getDecSS(myAstro.getDeclinationDec());
+                  startSlew();
+                }else{
+                  showTargetNotVisible(6);
+                }
+
+                break;
+              case 4:
+                myAstro.doMoon();
+                myAstro.doRAdec2AltAz();
+                if(myAstro.getAltitude() > 0){          
+                  targetRaHH = getRaHH(myAstro.getRAdec());
+                  targetRaMM = getRaMM(myAstro.getRAdec());
+                  targetRaSS = getRaSS(myAstro.getRAdec());
+
+                  targetDecD = getDecDeg(myAstro.getDeclinationDec());
+                  targetDecMM = getDecMM(myAstro.getDeclinationDec());
+                  targetDecSS = getDecSS(myAstro.getDeclinationDec());
+                  startSlew();
+                }else{
+                  showTargetNotVisible(6);
+                }
+              break;
             }
             break;
           case 7: //Planets
@@ -1541,12 +1596,12 @@ void movementButtonControl(){
                 targetDecSS = getDecSS(myAstro.getDeclinationDec());
                 startSlew();
               }else{
-                showTargetNotVisible();
+                showTargetNotVisible(7);
               }
             }
             break;
           case 8:
-            showGotoMenu();
+            returnToScreenMode();
             break;
         }
       }
@@ -1573,11 +1628,6 @@ int getYStick(){
 int getXStick(){
   int inX = analogRead(X_JOYSTICK_PIN);
   
-  #ifdef DEBUG_X_JOYSTICK
-    Serial.print("X:");
-    Serial.println(inX);
-  #endif
-
   if(inX > maxX){
     maxX = inX;
   }
@@ -1589,19 +1639,18 @@ void menuControl(){
   int y = 0;
 
   if(inY < (ANALOG_READ_RESOLUTION/12)){
-    
     y = -1 * Y_INVERT;
   }
   if(inY >= (ANALOG_READ_RESOLUTION/12) && inY <= (maxY - (ANALOG_READ_RESOLUTION/12))){
     y = 0;
   }
   if(inY > (maxY - (ANALOG_READ_RESOLUTION/12))){
-    
     y = 1 * Y_INVERT;
   }  
   
   if(y != lastYState){
     lastYDebounceTime = millis();
+    longYPressActive = false;
   }
 
   if((millis() - lastYDebounceTime) > debounceDelay){
@@ -1666,8 +1715,22 @@ void menuControl(){
             planetMenu.up();
             planetMenu.show(display);
             break;
+          
         }
       }
+    }else if((millis() - lastYDebounceTime) > longPressTime && longYPressActive == false)
+    {
+      longYPressActive = true;
+      if(y == -1){
+        switch(screenMode){
+          
+        }
+      }else if(y == 1){
+        switch(screenMode){
+          
+        }
+      }
+      
     }
   }
   lastYState = y;
@@ -1688,6 +1751,7 @@ void menuControl(){
   
   if(x != lastXState){
     lastXDebounceTime = millis();
+    longXPressActive = false;
   }
 
   if((millis() - lastXDebounceTime) > debounceDelay){
@@ -1715,12 +1779,77 @@ void menuControl(){
             }
             showAlignmentConfirm();
           }
-          
           break;
+        case 6:
+          if(x == -1){
+            switch(gotoMenu.selection()){
+              case 2:
+                if(messierObject > 110){
+                  messierObject = 1;
+                }else{
+                  messierObject += 1;
+                }
+                setMessierObject();
+                break;
+            }
+          }else if( x == 1){
+            switch(gotoMenu.selection()){
+              case 2:
+                if(messierObject == 1){
+                  messierObject = 110;
+                }else{
+                  messierObject -= 1;
+                }
+                setMessierObject();
+                break;
+            }
+          }
       }
+    }else if((millis() - lastXDebounceTime) > longPressTime && longXPressActive == false){
+      longXPressActive = true;
+      if(x == 1){
+        switch(screenMode){
+          case 6:
+            switch(gotoMenu.selection()){
+              case 2:
+                if(messierObject < 6){
+                  messierObject = 110;
+                }else{
+                  messierObject -= 5;
+                }
+                setMessierObject();
+                break;
+            }
+          break;
+        }
+      }else if(x == -1){
+        switch(screenMode){
+          case 6:
+            switch(gotoMenu.selection()){
+              case 2:
+                if(messierObject > 105){
+                  messierObject = 1;
+                }else{
+                  messierObject += 5;
+                }
+                setMessierObject();
+                break;
+            }
+            break;
+        }
+      }
+    }else if((millis() - lastXDebounceTime) > (longPressTime * 2) && longXPressActive == true){
+      longXPressActive = false;
     }
   }
   lastXState = x;
+}
+
+void setMessierObject(){
+  char output[16];
+  sprintf(output, "Messier: M%u", messierObject);
+  gotoMenuItems[2] = output;
+  showGotoMenu();
 }
 
 void toggleStepperSpeed(int x){
@@ -1738,29 +1867,25 @@ void toggleStepperSpeed(int x){
 #ifdef HAS_FOCUSER
   void readJoystickAndFocus(){
     
-    int x = getXStick();
+  int x = getXStick();
 
-    int aXSpeed = 0;
-    
-    if(x > xDeadZone + 50){
-      //Top Speed: 1000?
-      aXSpeed = map(x, (xDeadZone + 50), (xDeadZone * 2), 0, MAX_FOCUS_SPEED * X_INVERT); //TODO Fix for xMax
-      xMoving = true;    
-    }else if(x < xDeadZone - 50){
-      //Top Speed: 1000?
-      aXSpeed = map(x, (xDeadZone - 50),0,0, -MAX_FOCUS_SPEED * X_INVERT);
-      xMoving = true;
-    }else{
-      xMoving = false;
-    }
+  int aXSpeed = 0;
+  
+  if(x > xDeadZone + 50){
+    aXSpeed = map(x, (xDeadZone + 50), maxX, 0, MAX_FOCUS_SPEED * X_INVERT);
+    xMoving = true;    
+  }else if(x < xDeadZone - 50){
+    aXSpeed = map(x, (xDeadZone - 50),0,0, -MAX_FOCUS_SPEED * X_INVERT);
+    xMoving = true;
+  }else{
+    xMoving = false;
+  }
 
-    if(xMoving){
-      setFSpeed(aXSpeed);
-    }else{
-      setFSpeed(0);
-    }
-
-    xLastMoving = xMoving;
+  if(xMoving){
+    setFSpeed(aXSpeed);
+  }else{
+    setFSpeed(0);
+  }
   }
 #endif
 
@@ -1787,8 +1912,6 @@ void readJoystickAndMove(){
   }else{
     setYSpeed(0);
   }
-
-  yLastMoving = yMoving;
   
   int x = getXStick();
 
@@ -1811,8 +1934,6 @@ void readJoystickAndMove(){
   }else{
     setXSpeed(0);
   }
-
-  xLastMoving = xMoving;
   
 }
 
