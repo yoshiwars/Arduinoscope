@@ -177,6 +177,7 @@ const char *planetMenuItems[] =
 };
 
 unsigned int messierObject = 1;
+unsigned int caldwellObject = 1;
 
 LcdGfxMenu mainMenu(mainMenuItems, sizeof(mainMenuItems) / sizeof(char *) );
 LcdGfxMenu settingsMenu(settingsMenuItems, sizeof(settingsMenuItems) / sizeof(char *) );
@@ -1330,6 +1331,14 @@ void showOffsetsMenu(){
 void showGotoMenu(){
   screenMode = 6;
   display.clear();
+  char output[16];
+  sprintf(output, "Messier: M%u", messierObject);
+  gotoMenuItems[2] = output;
+  
+  sprintf(output, "Caldwell: %u", caldwellObject);
+  gotoMenuItems[3] = output;
+  
+
   gotoMenu.show(display); 
 }
 
@@ -1347,6 +1356,22 @@ void showTargetNotVisible(int returnToScreen){
   display.printFixed(0, 16, "Press button to", STYLE_NORMAL);
   display.printFixed(0, 24, "return to GoTo menu.", STYLE_NORMAL);
   returnScreenMode = returnToScreen;
+}
+
+void gotoTarget(int returnToScreen){
+  myAstro.doRAdec2AltAz();
+  if(myAstro.getAltitude() > 0){          
+    targetRaHH = getRaHH(myAstro.getRAdec());
+    targetRaMM = getRaMM(myAstro.getRAdec());
+    targetRaSS = getRaSS(myAstro.getRAdec());
+
+    targetDecD = getDecDeg(myAstro.getDeclinationDec());
+    targetDecMM = getDecMM(myAstro.getDeclinationDec());
+    targetDecSS = getDecSS(myAstro.getDeclinationDec());
+    startSlew();
+  }else{
+    showTargetNotVisible(returnToScreen);
+  }
 }
 
 
@@ -1547,36 +1572,16 @@ void movementButtonControl(){
               case 2: //Messier Objects
                 myObjects.selectMessierTable(messierObject);
                 myAstro.setRAdec(myObjects.getRAdec(), myObjects.getDeclinationDec());
-                myAstro.doRAdec2AltAz();
-                if(myAstro.getAltitude() > 0){          
-                  targetRaHH = getRaHH(myAstro.getRAdec());
-                  targetRaMM = getRaMM(myAstro.getRAdec());
-                  targetRaSS = getRaSS(myAstro.getRAdec());
-
-                  targetDecD = getDecDeg(myAstro.getDeclinationDec());
-                  targetDecMM = getDecMM(myAstro.getDeclinationDec());
-                  targetDecSS = getDecSS(myAstro.getDeclinationDec());
-                  startSlew();
-                }else{
-                  showTargetNotVisible(6);
-                }
-
+                gotoTarget(6);
+                break;
+              case 3:
+                myObjects.selectCaldwellTable(caldwellObject);
+                myAstro.setRAdec(myObjects.getRAdec(), myObjects.getDeclinationDec());
+                gotoTarget(6);
                 break;
               case 4:
                 myAstro.doMoon();
-                myAstro.doRAdec2AltAz();
-                if(myAstro.getAltitude() > 0){          
-                  targetRaHH = getRaHH(myAstro.getRAdec());
-                  targetRaMM = getRaMM(myAstro.getRAdec());
-                  targetRaSS = getRaSS(myAstro.getRAdec());
-
-                  targetDecD = getDecDeg(myAstro.getDeclinationDec());
-                  targetDecMM = getDecMM(myAstro.getDeclinationDec());
-                  targetDecSS = getDecSS(myAstro.getDeclinationDec());
-                  startSlew();
-                }else{
-                  showTargetNotVisible(6);
-                }
+                gotoTarget(6);
               break;
             }
             break;
@@ -1585,19 +1590,7 @@ void movementButtonControl(){
               showGotoMenu();
             }else{
               myAstro.doPlans(planetMenu.selection());
-              myAstro.doRAdec2AltAz();
-              if(myAstro.getAltitude() > 0){          
-                targetRaHH = getRaHH(myAstro.getRAdec());
-                targetRaMM = getRaMM(myAstro.getRAdec());
-                targetRaSS = getRaSS(myAstro.getRAdec());
-
-                targetDecD = getDecDeg(myAstro.getDeclinationDec());
-                targetDecMM = getDecMM(myAstro.getDeclinationDec());
-                targetDecSS = getDecSS(myAstro.getDeclinationDec());
-                startSlew();
-              }else{
-                showTargetNotVisible(7);
-              }
+              gotoTarget(7);
             }
             break;
           case 8:
@@ -1781,15 +1774,22 @@ void menuControl(){
           }
           break;
         case 6:
+        {
           if(x == -1){
             switch(gotoMenu.selection()){
               case 2:
-                if(messierObject > 110){
+                if(messierObject == 110){
                   messierObject = 1;
                 }else{
                   messierObject += 1;
                 }
-                setMessierObject();
+                break;
+              case 3:
+                if(caldwellObject == 109){
+                  caldwellObject = 1;
+                }else{
+                  caldwellObject += 1;
+                }
                 break;
             }
           }else if( x == 1){
@@ -1800,10 +1800,19 @@ void menuControl(){
                 }else{
                   messierObject -= 1;
                 }
-                setMessierObject();
+                break;
+              case 3:
+                if(caldwellObject == 1){
+                  caldwellObject = 109;
+                }else{
+                  caldwellObject -= 1;
+                }
                 break;
             }
           }
+          showGotoMenu();
+          break;
+        }          
       }
     }else if((millis() - lastXDebounceTime) > longPressTime && longXPressActive == false){
       longXPressActive = true;
@@ -1817,9 +1826,16 @@ void menuControl(){
                 }else{
                   messierObject -= 5;
                 }
-                setMessierObject();
+                break;
+              case 3:
+                if(caldwellObject < 6){
+                  caldwellObject = 109;
+                }else{
+                  caldwellObject -= 5;
+                }
                 break;
             }
+            showGotoMenu();
           break;
         }
       }else if(x == -1){
@@ -1832,9 +1848,16 @@ void menuControl(){
                 }else{
                   messierObject += 5;
                 }
-                setMessierObject();
+                break;
+              case 3:
+                if(caldwellObject > 104){
+                  caldwellObject = 1;
+                }else{
+                  caldwellObject += 5;
+                }
                 break;
             }
+            showGotoMenu();
             break;
         }
       }
@@ -1843,13 +1866,6 @@ void menuControl(){
     }
   }
   lastXState = x;
-}
-
-void setMessierObject(){
-  char output[16];
-  sprintf(output, "Messier: M%u", messierObject);
-  gotoMenuItems[2] = output;
-  showGotoMenu();
 }
 
 void toggleStepperSpeed(int x){
