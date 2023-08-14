@@ -158,15 +158,14 @@ const char *offSetsMenuItems[] =
 const char *gotoMenuItems[] =
 {
   "<-- Back",
-  "Planets",
+  "Planet: Mercury",
   "Messier: M1",
   "Caldwell: 1",
   "The Moon"
 };
 
-const char *planetMenuItems[] =
+const char *planets[] =
 {
-  "<-- Back",
   "Mercury",
   "Venus",
   "Mars",
@@ -178,6 +177,7 @@ const char *planetMenuItems[] =
 
 unsigned int messierObject = 1;
 unsigned int caldwellObject = 1;
+unsigned int planetObject = 0;
 
 LcdGfxMenu mainMenu(mainMenuItems, sizeof(mainMenuItems) / sizeof(char *) );
 LcdGfxMenu settingsMenu(settingsMenuItems, sizeof(settingsMenuItems) / sizeof(char *) );
@@ -186,7 +186,6 @@ LcdGfxMenu offsetsMenu(offSetsMenuItems, sizeof(offSetsMenuItems) / sizeof(char 
 LcdGfxYesNo alignmentConfirm("Apply new offset?");
 
 LcdGfxMenu gotoMenu(gotoMenuItems, sizeof(gotoMenuItems)/sizeof(char *));
-LcdGfxMenu planetMenu(planetMenuItems, sizeof(planetMenuItems)/sizeof(char *));
 
 //alignment Variables
 int alignmentScreen = 0;
@@ -1332,20 +1331,17 @@ void showGotoMenu(){
   screenMode = 6;
   display.clear();
   char output[16];
+  strcpy(output, "Planet: ");
+  strcat(output, planets[planetObject]);
+  gotoMenuItems[1] = output;
+
   sprintf(output, "Messier: M%u", messierObject);
   gotoMenuItems[2] = output;
   
   sprintf(output, "Caldwell: %u", caldwellObject);
   gotoMenuItems[3] = output;
   
-
   gotoMenu.show(display); 
-}
-
-void showPlanetsMenu(){
-  screenMode = 7;
-  display.clear();
-  planetMenu.show(display);
 }
 
 void showTargetNotVisible(int returnToScreen){
@@ -1381,7 +1377,7 @@ void returnToScreenMode(){
       showGotoMenu();
       break;
     case 7:
-      showPlanetsMenu();
+      
       break;
   }
 }
@@ -1567,7 +1563,8 @@ void movementButtonControl(){
                 showMainMenu();
                 break;
               case 1:
-                showPlanetsMenu();
+                myAstro.doPlans((planetObject + 1));
+                gotoTarget(6);
                 break;
               case 2: //Messier Objects
                 myObjects.selectMessierTable(messierObject);
@@ -1585,13 +1582,8 @@ void movementButtonControl(){
               break;
             }
             break;
-          case 7: //Planets
-            if(planetMenu.selection() == 0){
-              showGotoMenu();
-            }else{
-              myAstro.doPlans(planetMenu.selection());
-              gotoTarget(7);
-            }
+          case 7: 
+            
             break;
           case 8:
             returnToScreenMode();
@@ -1676,8 +1668,7 @@ void menuControl(){
             gotoMenu.show(display);
             break;
           case 7:
-            planetMenu.down();
-            planetMenu.show(display);
+            
             break;
         }
       }else if(y == 1){
@@ -1705,8 +1696,7 @@ void menuControl(){
             gotoMenu.show(display);
             break;
           case 7:
-            planetMenu.up();
-            planetMenu.show(display);
+            
             break;
           
         }
@@ -1777,6 +1767,13 @@ void menuControl(){
         {
           if(x == -1){
             switch(gotoMenu.selection()){
+              case 1:
+                if(planetObject == 6){
+                  planetObject = 0;
+                }else{
+                  planetObject += 1;
+                }
+                break;
               case 2:
                 if(messierObject == 110){
                   messierObject = 1;
@@ -1794,6 +1791,13 @@ void menuControl(){
             }
           }else if( x == 1){
             switch(gotoMenu.selection()){
+              case 1:
+                if(planetObject == 0){
+                  planetObject = 6;
+                }else{
+                  planetObject -= 1;
+                }
+                break;
               case 2:
                 if(messierObject == 1){
                   messierObject = 110;
@@ -1820,6 +1824,13 @@ void menuControl(){
         switch(screenMode){
           case 6:
             switch(gotoMenu.selection()){
+              case 1:
+                if(planetObject < 3){
+                  planetObject = 6;
+                }else{
+                  planetObject -= 2;
+                }
+                break;
               case 2:
                 if(messierObject < 6){
                   messierObject = 110;
@@ -1842,6 +1853,13 @@ void menuControl(){
         switch(screenMode){
           case 6:
             switch(gotoMenu.selection()){
+              case 1:
+                if(planetObject > 4){
+                  planetObject = 1;
+                }else{
+                  planetObject += 2;
+                }
+                break;
               case 2:
                 if(messierObject > 105){
                   messierObject = 1;
