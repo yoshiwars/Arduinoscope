@@ -11,11 +11,11 @@
 /************************************************************************************************************************
 Start Configurable Items
 *************************************************************************************************************************/
-#define MOUNT_NAME "TripodMount"                    //Name of the Bluetooth Serial
-const int GEAR_RATIO = 1;                       //where 1 is no gearing (ex. 300 Tooth gear / 20 tooth gear = 15), 15 Telescope, 1 Binoc
+#define MOUNT_NAME "Telescope"                    //Name of the Bluetooth Serial
+const int GEAR_RATIO = 15;                       //where 1 is no gearing (ex. 300 Tooth gear / 20 tooth gear = 15), 15 Telescope, 1 Binoc
 const double SINGLE_STEP_DEGREE =  360.0 / 200.0;    // the motor has 200 regular steps for 360 degrees (360 divided by 200 = 1.8)
-const double MOTOR_GEAR_BOX = (26.0 + (103.0/121.0)); //where 1 is no gearing (26 + (103/121)) planetary gearbox version
-const float MAX_MOTOR_SPEED = 250;              //250 is probably good without GEAR_RATIO >1, 3000 Telescope, 250 Binoc 
+const double MOTOR_GEAR_BOX = 15;                 //where 1 is no gearing (26 + (103/121)) planetary gearbox version
+const float MAX_MOTOR_SPEED = 1500;              //250 is probably good without GEAR_RATIO >1, 1500 Telescope, 250 Binoc 
 
 //Define Motor setup
 const int Y_DIRECTION_PIN = 13;                 //ALT Driver Dir
@@ -27,18 +27,18 @@ const int MOTOR_INTERFACE_TYPE = 1;             //AccelStepper Motor Type 1
 
 //Define Remote setup
 const int Y_JOYSTICK_PIN = 34;                  //Up/Down Pin on the Remote
-const int Y_INVERT = -1;                        //1 is normal, -1 inverted , binoc -1, telescope 1
+const int Y_INVERT = 1;                         //1 is normal, -1 inverted , binoc -1, telescope 1
 const int X_JOYSTICK_PIN = 35;                  //Left/Right Pin on the remote
-const int X_INVERT = -1;                        //1 is normal, -1 inverted
+const int X_INVERT = 1;                        //1 is normal, -1 inverted , binoc -1, telescope 1
 
 const int BUTTON_PIN = 32;                      //button on Remotes
 const int ANALOG_READ_RESOLUTION = 4095;        //ESP32 has this resolution, other chips may vary
 
 //Comment Out HAS_FOCUSER for no Focuser
-//#define HAS_FOCUSER
+#define HAS_FOCUSER
 
 #ifdef HAS_FOCUSER
-  const int FOCUS_DIRECTION_PIN = 2;
+  const int FOCUS_DIRECTION_PIN = 15;
   const int FOCUS_STEP_PIN = 2;
   const int MAX_FOCUS_SPEED = 1024;
   const int FOCUS_INTERFACE_TYPE = 1;           //1 is with driver DRV8825
@@ -114,7 +114,7 @@ unsigned int screenMode = 0;
       3 - Confirm sync
   5 - Offsets Menu
   6 - Goto Menu
-  7 - Planets Menu
+  7 - Planets Menu --Not in use anymore
   8 - Target Below Horizon
 */
 unsigned int returnScreenMode = 0;
@@ -1335,11 +1335,13 @@ void showGotoMenu(){
   strcat(output, planets[planetObject]);
   gotoMenuItems[1] = output;
 
-  sprintf(output, "Messier: M%u", messierObject);
-  gotoMenuItems[2] = output;
+  char output2[16];
+  sprintf(output2, "Messier: M%u", messierObject);
+  gotoMenuItems[2] = output2;
   
-  sprintf(output, "Caldwell: %u", caldwellObject);
-  gotoMenuItems[3] = output;
+  char output3[16];
+  sprintf(output3, "Caldwell: %u", caldwellObject);
+  gotoMenuItems[3] = output3;
   
   gotoMenu.show(display); 
 }
