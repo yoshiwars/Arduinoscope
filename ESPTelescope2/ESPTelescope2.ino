@@ -9,7 +9,7 @@
 #include <SiderealObjects.h>
 
 /************************************************************************************************************************
-Start Configurable Items
+Start Configurable Items 
 *************************************************************************************************************************/
 #define MOUNT_NAME "Telescope"                    //Name of the Bluetooth Serial
 const int GEAR_RATIO = 15;                       //where 1 is no gearing (ex. 300 Tooth gear / 20 tooth gear = 15), 15 Telescope, 1 Binoc
