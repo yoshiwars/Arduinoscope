@@ -11,7 +11,10 @@
 /************************************************************************************************************************
 Start Configurable Items 
 *************************************************************************************************************************/
-#define MOUNT_NAME "Telescope"                    //Name of the Bluetooth Serial
+#define MOUNT_NAME "Telescope8"                    //Name of the Mount - Bluetooth Name etc.
+#define FIRMWARE_VERSION "0.1"                     //Just for Informational Purposes
+#define FIRMWARE_DATE "MAY 09 2024"                //Just for Informational Purposes
+
 const int GEAR_RATIO = 15;                       //where 1 is no gearing (ex. 300 Tooth gear / 20 tooth gear = 15), 15 Telescope, 1 Binoc
 const double SINGLE_STEP_DEGREE =  360.0 / 200.0;    // the motor has 200 regular steps for 360 degrees (360 divided by 200 = 1.8)
 const double MOTOR_GEAR_BOX = 15;                 //where 1 is no gearing (26 + (103/121)) planetary gearbox version
@@ -246,7 +249,7 @@ TinyGPSPlus gps;
 bool gpsAcquired = false;
 long lastGPSCheck = 0;
 
-float flat, flon;
+float flat = 0, flon = 0;
 float faltitude;
 
 int sats;
@@ -557,209 +560,12 @@ void communication(Stream &aSerial)
   if(newData){
 
     String strInput = String(input);
-    
-    if(input[1] == 'G' && input[2] == 'V' && input[3] == 'P'){
-      //Get Telescope Name
-      aSerial.print(MOUNT_NAME);
-      aSerial.print("#");
-    }
 
-    if(input[1] == 'G' && input[2] == 'V' && input[3] == 'N'){
-      //Get Firmware Number
-      
-      aSerial.print("0.1#");
-    }
-
-    if(input[1] == 'G' && input[2] == 'V' && input[3] == 'D'){
-      aSerial.print("Sep 10 2022#");
-    }
-
-    if(input[1] == 'G' && input[2] == 'C'){
-      //Get Telescope Local Date
-      setTime(gps.time.hour(), gps.time.minute(), gps.time.second(), gps.date.day(), gps.date.month(), gps.date.year());
-      
-      if(myAstro.getLT() > myAstro.getGMT()){
-        adjustTime(-1*((24 + myAstro.getGMT()) - myAstro.getLT())*3600);
-      }
-      char charDate[12];
-      
-      sprintf(charDate, "%02d/%02d/%02d#", month(), day(), (year()-2000));
-            
-      aSerial.print(charDate);
-    }
-
-    if(input[1] == 'G' && input[2] == 'L'){
-      char charDate[12];
-      sprintf(charDate, "%02d:%02d:%02d#", getRaHH(myAstro.getLT()), getRaMM(myAstro.getLT()), getRaSS(myAstro.getLT()));
-      aSerial.print(charDate);
-    }
-
-    if(input[1] == 'G' && input[2] == 'G'){
-      int calcOffset = (myAstro.getLT() < myAstro.getGMT()? myAstro.getGMT() : myAstro.getGMT() + 24) - myAstro.getLT();
-      
-      aSerial.print(calcOffset);
-      aSerial.print("#");
-    }
-
-    if(input[1] == 'G' && input[2] == 'V' && input[3] == 'T'){
-      //Get Telescope Firmware Time
-      char charDate[12];
-      sprintf(charDate, "%02d:%02d:%02d#", 23, 13, 00);
-      
-      aSerial.print(charDate);
-    }
-
-    if(input[1] == 'G' && input[2] == 'g'){
-      float lon = gps.location.lng();
-      
-      char charLon[20];
-
-      int lonDeg = (int) lon;
-      float lonMinutesRemainder = abs(lon - lonDeg) * 60;
-      int lonMin = (int) lonMinutesRemainder;
-
-      lonDeg *= -1;
-
-      sprintf(charLon, "%03d*%02d#", lonDeg, lonMin);
-      aSerial.print(charLon);
-    }
-
-    if(input[1] == 'G' && input[2] == 't'){
-      float lat = gps.location.lat();
-      
-      char charLat[20];
-
-      int latDeg = (int) lat;
-      float latMinutesRemainder = abs(lat-latDeg) * 60;
-      int latMin = (int)latMinutesRemainder;
-
-      sprintf(charLat, "%02d*%02d#", latDeg, latMin);
-      aSerial.print(charLat);
-      
-    }
-
-    if(input[1] == 'G' && input[2] == 'W'){
-      //Get Track State
-      aSerial.print("A");
-      
-      if(isTracking){
-        aSerial.print("T");
-      }else{
-        aSerial.print("N");
-      }
-
-      if(synced){
-        aSerial.print("1");
-      }else{
-        aSerial.print("0");
-      }
-
-      aSerial.print("#");
-    }
-
-    
-
-    if(input[1] == 'D'){
-      if(slewComplete){
-        aSerial.print("#");
-      }else{
-        aSerial.print("-#");
-      }
-    }
-
-    //report AZ
-    if (input[1] == 'G' && input[2] == 'R') {
-      float totalAz = addSteps(-1*xStepper.currentPosition(), currentAz, AZ);
-      float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, ALT);
-      
-      myAstro.setAltAz(totalAlt, totalAz);
-      myAstro.doAltAz2RAdec();
-
-      float aRa = myAstro.getRAdec();
-      
-      sprintf(txRA, "%02d:%02d:%02d#", getRaHH(aRa), getRaMM(aRa), getRaSS(aRa));
-      aSerial.print(txRA);
-    }
-  
-    if (input[1] == 'G' && input[2] == 'D') {
-
-      float totalAz  = addSteps(-1*xStepper.currentPosition(), currentAz, AZ);
-      float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, ALT);
-
-      myAstro.setAltAz(totalAlt, totalAz);
-      myAstro.doAltAz2RAdec();
-      
-      float aDec = myAstro.getDeclinationDec();
-  
-      char decCase;
-  
-      if(aDec < 0){
-        decCase = 45;
-      }else{
-        decCase = 43;
-      }
-      
-      sprintf(txDEC, "%c%02d%c%02d:%02d#", decCase, getDecDeg(aDec), 223, getDecMM(aDec),getDecSS(aDec));
-      aSerial.print(txDEC);
-    }
-
-    //Set Hour Offset
-    if(input[1] == 'S' && input[2] == 'G'){
-      inHourOffset = strInput.substring(3,7).toInt();
-      aSerial.print(1);
-    }
-
-    if(input[1] == 'S' && input[2] == 'L'){
-      inHour = strInput.substring(3,5).toInt();
-      inMinute = strInput.substring(6,8).toInt();
-      inSecond = strInput.substring(9).toInt();
-      
-      aSerial.print(1);
-    }
-
-    if(input[1] == 'S' && input[2] == 'C'){
-      inMonth = strInput.substring(3,5).toInt();
-      inDay = strInput.substring(6,8).toInt();
-      inYear = strInput.substring(9).toInt();
-      inYear += 2000;
-
-      setTime(inHour, inMinute, inSecond, inDay, inMonth, inYear);
-
-      adjustTime(inHourOffset * 3600);
-
-      myAstro.setGMTdate(year(), month(), day());
-      myAstro.setGMTtime(hour(), minute(), second());
-      myAstro.useAutoDST();
-
-      aSerial.print(1);
-    }
-  
-    if(input[1] == 'S' && input[2] == 'r'){
-      
-      raHH = strInput.substring(3,5).toInt();
-      raMM = strInput.substring(6,8).toInt();
-      raSS = strInput.substring(9).toInt();
-            
-      aSerial.print(1);
-            
-    }
-  
-    if(input[1] == 'S' && input[2] == 'd' ){
-      
-      if(input[3] == '-'){
-        decD = strInput.substring(3,6).toInt();
-      }else{
-        decD = strInput.substring(4,6).toInt();
-      }
-      
-      decMM = strInput.substring(7,9).toInt();
-      decSS = strInput.substring(10,12).toInt();
-      
-      aSerial.print(1);
-
-  }
-
-    //Sync
+    //C - Sync Control
+    /*:CM# Synchronizes the telescope's position with the currently selected database object's coordinates.
+        Returns:
+        LX200's - a "#" terminated string with the name of the object that was synced.
+        Autostars & LX200GPS - At static string: " M31 EX GAL MAG 3.5 SZ178.0'#" */
     if(input[1] == 'C' && input[2] == 'M'){
       
       setXSpeed(0);
@@ -883,56 +689,207 @@ void communication(Stream &aSerial)
       aSerial.print(1);      
     }
 
+    //D - Distance Bars
+    /*:D# Requests a string of bars indicating the distance to the current library object.
+      Returns:
+      LX200's – a string of bar characters indicating the distance. */
+    if(input[1] == 'D'){
+      if(slewComplete){
+        aSerial.print("#");
+      }else{
+        aSerial.print("-#");
+      }
+    }
+
+    //G – Get Telescope Information
+    /*:GC# Get current date.
+      Returns: MM/DD/YY#
+      The current local calendar date for the telescope. */
+    if(input[1] == 'G' && input[2] == 'C'){
+      //Get Telescope Local Date
+      setTime(gps.time.hour(), gps.time.minute(), gps.time.second(), gps.date.day(), gps.date.month(), gps.date.year());
+      
+      if(myAstro.getLT() > myAstro.getGMT()){
+        adjustTime(-1*((24 + myAstro.getGMT()) - myAstro.getLT())*3600);
+      }
+      char charDate[12];
+      
+      sprintf(charDate, "%02d/%02d/%02d#", month(), day(), (year()-2000));
+            
+      aSerial.print(charDate);
+    }
+
+    /*:GD# Get Telescope Declination.
+      Returns: sDD*MM# or sDD*MM’SS#
+      Depending upon the current precision setting for the telescope. */
+    if (input[1] == 'G' && input[2] == 'D') {
+
+      float totalAz  = addSteps(-1*xStepper.currentPosition(), currentAz, AZ);
+      float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, ALT);
+
+      myAstro.setAltAz(totalAlt, totalAz);
+      myAstro.doAltAz2RAdec();
+      
+      float aDec = myAstro.getDeclinationDec();
+  
+      char decCase;
+  
+      if(aDec < 0){
+        decCase = 45;
+      }else{
+        decCase = 43;
+      }
+      
+      sprintf(txDEC, "%c%02d%c%02d:%02d#", decCase, getDecDeg(aDec), 223, getDecMM(aDec),getDecSS(aDec));
+      aSerial.print(txDEC);
+    }
+
+    /*:GG# Get UTC offset time
+      Returns: sHH# or sHH.H#
+      The number of decimal hours to add to local time to convert it to UTC. If the number is a whole number the
+      sHH# form is returned, otherwise the longer form is return. On Autostar and LX200GPS, the daylight savings
+      setting in effect is factored into returned value. */
+    if(input[1] == 'G' && input[2] == 'G'){
+      int calcOffset = (myAstro.getLT() < myAstro.getGMT()? myAstro.getGMT() : myAstro.getGMT() + 24) - myAstro.getLT();
+      
+      aSerial.print(calcOffset);
+      aSerial.print("#");
+    }
+
+    /*:Gg# Get Current Site Longitude
+      Returns: sDDD*MM#
+      The current site Longitude. East Longitudes are expressed as negative*/
+    if(input[1] == 'G' && input[2] == 'g'){
+      float lon = gps.location.lng();
+      
+      char charLon[20];
+
+      int lonDeg = (int) lon;
+      float lonMinutesRemainder = abs(lon - lonDeg) * 60;
+      int lonMin = (int) lonMinutesRemainder;
+
+      lonDeg *= -1;
+
+      sprintf(charLon, "%03d*%02d#", lonDeg, lonMin);
+      aSerial.print(charLon);
+    }
+
+    /*:GL# Get Local Time in 24 hour format
+      Returns: HH:MM:SS# */
+    if(input[1] == 'G' && input[2] == 'L'){
+      char charDate[12];
+      sprintf(charDate, "%02d:%02d:%02d#", getRaHH(myAstro.getLT()), getRaMM(myAstro.getLT()), getRaSS(myAstro.getLT()));
+      aSerial.print(charDate);
+    }
+
+    /*:GR# Get Telescope RA
+      Returns: HH:MM.T# or HH:MM:SS#
+      Depending which precision is set for the telescope */    
+    if (input[1] == 'G' && input[2] == 'R') {
+      float totalAz = addSteps(-1*xStepper.currentPosition(), currentAz, AZ);
+      float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, ALT);
+      
+      myAstro.setAltAz(totalAlt, totalAz);
+      myAstro.doAltAz2RAdec();
+
+      float aRa = myAstro.getRAdec();
+      
+      sprintf(txRA, "%02d:%02d:%02d#", getRaHH(aRa), getRaMM(aRa), getRaSS(aRa));
+      aSerial.print(txRA);
+    }
+
+    /*:Gt# Get Current Site Latitdue
+      Returns: sDD*MM#
+      The latitude of the current site. Positive inplies North latitude. */
+    if(input[1] == 'G' && input[2] == 't'){
+      float lat = gps.location.lat();
+      
+      char charLat[20];
+
+      int latDeg = (int) lat;
+      float latMinutesRemainder = abs(lat-latDeg) * 60;
+      int latMin = (int)latMinutesRemainder;
+
+      sprintf(charLat, "%02d*%02d#", latDeg, latMin);
+      aSerial.print(charLat);
+    }
+
+    /*:GVD# Get Telescope Firmware Date
+      Returns: mmm dd yyyy# */
+    if(input[1] == 'G' && input[2] == 'V' && input[3] == 'D'){
+      aSerial.print(FIRMWARE_DATE);
+      aSerial.print("#");
+    }
+
+    /*:GVN# Get Telescope Firmware Number
+      Returns: dd.d# */
+    if(input[1] == 'G' && input[2] == 'V' && input[3] == 'N'){
+      //Get Firmware Number
+      aSerial.print(FIRMWARE_VERSION);
+      aSerial.print("#");
+    }
+
+    /*:GVP# Get Telescope Product Name
+      Returns: <string># */
+    if(input[1] == 'G' && input[2] == 'V' && input[3] == 'P'){
+      //Get Telescope Name
+      aSerial.print(MOUNT_NAME);
+      aSerial.print("#");
+    }
+
+    /*:GVT# Get Telescope Firmware Time
+      returns: HH:MM:SS# */
+    if(input[1] == 'G' && input[2] == 'V' && input[3] == 'T'){
+      //Get Telescope Firmware Time
+      char charDate[12];
+      sprintf(charDate, "%02d:%02d:%02d#", 23, 13, 00);
+      
+      aSerial.print(charDate);
+    }
+
+
+    if(input[1] == 'G' && input[2] == 'W'){
+      //Get Track State
+      aSerial.print("A");
+      
+      if(isTracking){
+        aSerial.print("T");
+      }else{
+        aSerial.print("N");
+      }
+
+      if(synced){
+        aSerial.print("1");
+      }else{
+        aSerial.print("0");
+      }
+
+      aSerial.print("#");
+    }
+
+    //M – Telescope Movement Commands
     //Movement
     if(input[1] == 'M'){
       isTracking = false;
-      if(input[2] == 'e'){
+      if(input[2] == 'e'){ //:Me# Move Telescope East at current slew rate Returns: Nothing 
         setXSpeed(50);
       }
-      if(input[2] == 'w'){
-        setXSpeed(-50);
-        
+      if(input[2] == 'w'){ //:Mw# Move Telescope West at current slew rate Returns: Nothing 
+        setXSpeed(-50);        
       }
-      if(input[2] == 'n'){
+      if(input[2] == 'n'){ //:Mn# Move Telescope North at current slew rate Returns: Nothing
         setYSpeed(-50);
       }
-      if(input[2] == 's'){
+      if(input[2] == 's'){ //:Ms# Move Telescope South at current slew rate Returns: Nothing 
         setYSpeed(50);
       }
-      
     }
 
-
-    //stop moving
-    if(input[1] == 'Q'){
-      setTrack();
-      if(input[2] == 'e' || input[2] == 'w'){
-        
-      }else if(input[2] == 'n' || input[2] == 's'){
-        
-      }else{
-        
-      }
-    }
-    
-    //modify Slew Rate
-    if(input[1] == 'R'){
-      if(input[2] == 'C'){
-          stepperSpeed = 1;
-      }
-      if(input[2] == 'G'){
-          stepperSpeed = 0;
-      }
-      if(input[2] == 'M'){
-          stepperSpeed = 2;
-      }
-      if(input[2] == 'S'){
-          stepperSpeed = 3;
-      }
-    }
-
-    
-    //Slew!
+    /*:MS# Slew to Target Object
+      Returns:
+      0 Slew is Possible
+      1<string># Object Below Horizon w/string message
+      2<string># Object Below Higher w/string message */
     if(input[1] == 'M' && input[2] == 'S'){
       moving = false;
       
@@ -948,6 +905,156 @@ void communication(Stream &aSerial)
       
       aSerial.print(1);
     }
+
+    //Q – Movement Commands
+    //stop moving
+    if(input[1] == 'Q'){
+      setTrack();
+      if(input[2] == 'e' || input[2] == 'w'){
+        
+      }else if(input[2] == 'n' || input[2] == 's'){
+        
+      }else{
+        
+      }
+    }
+
+    //R – Slew Rate Commands
+    //modify Slew Rate
+    if(input[1] == 'R'){
+      if(input[2] == 'C'){ //:RC# Set Slew rate to Centering rate (2nd slowest) Returns: Nothing 
+          stepperSpeed = 1;
+      }
+      if(input[2] == 'G'){ //:RG# Set Slew rate to Guiding Rate (slowest) Returns: Nothing
+          stepperSpeed = 0;
+      }
+      if(input[2] == 'M'){ //:RM# Set Slew rate to Find Rate (2nd Fastest) Returns: Nothing 
+          stepperSpeed = 2;
+      }
+      if(input[2] == 'S'){ //:RS# Set Slew rate to max (fastest) Returns: Nothing
+          stepperSpeed = 3;
+      }
+    }
+
+    //S – Telescope Set Commands 
+    /*:SCMM/DD/YY#
+      Change Handbox Date to MM/DD/YY
+      Returns: <D><string>
+        D = ‘0’ if the date is invalid. The string is the null string.
+        D = ‘1’ for valid dates and the string is “Updating Planetary Data#*/
+    if(input[1] == 'S' && input[2] == 'C'){
+      inMonth = strInput.substring(3,5).toInt();
+      inDay = strInput.substring(6,8).toInt();
+      inYear = strInput.substring(9).toInt();
+      inYear += 2000;
+
+      setTime(inHour, inMinute, inSecond, inDay, inMonth, inYear);
+
+      adjustTime(inHourOffset * 3600);
+
+      myAstro.setGMTdate(year(), month(), day());
+      myAstro.setGMTtime(hour(), minute(), second());
+      myAstro.useAutoDST();
+
+      aSerial.print(1);
+    }
+
+    /*:SdsDD*MM#
+      Set target object declination to sDD*MM or sDD*MM:SS depending on the current precision setting
+      Returns:
+      1 - Dec Accepted
+      0 – Dec invalid */
+    if(input[1] == 'S' && input[2] == 'd' ){
+      if(input[3] == '-'){
+        decD = strInput.substring(3,6).toInt();
+      }else{
+        decD = strInput.substring(4,6).toInt();
+      }
+      
+      decMM = strInput.substring(7,9).toInt();
+      decSS = strInput.substring(10,12).toInt();
+      
+      aSerial.print(1);
+    }
+
+    /*:SGsHH.H#
+      Set the number of hours added to local time to yield UTC
+      Returns:
+      0 – Invalid
+      1 - Valid */
+    if(input[1] == 'S' && input[2] == 'G'){
+      inHourOffset = strInput.substring(3,7).toInt();
+      aSerial.print(1);
+    }
+
+    /*:SgDDD*MM#
+      Set current site’s longitude to DDD*MM an ASCII position string
+      Returns:
+      0 – Invalid
+      1 - Valid */
+    if(input[1] == 'S' && input[2] == 'g'){
+       int inLonD = strInput.substring(3,5).toInt();
+       long inLonM = strInput.substring(7,8).toInt();
+       inLonM = inLonM/60;
+       flon = inLonD + inLonM;
+       if(flon != 0 && flat != 0){
+          myAstro.setLatLong((double)flat, (double)flon);
+       }
+      aSerial.print(1);
+    } 
+
+    /*:SLHH:MM:SS#
+      Set the local Time
+      Returns:
+        0 – Invalid
+        1 - Valid */
+    if(input[1] == 'S' && input[2] == 'L'){
+      inHour = strInput.substring(3,5).toInt();
+      inMinute = strInput.substring(6,8).toInt();
+      inSecond = strInput.substring(9).toInt();
+      
+      aSerial.print(1);
+    }
+
+    /*:SrHH:MM.T#
+      :SrHH:MM:SS#
+      Set target object RA to HH:MM.T or HH:MM:SS depending on the current precision setting.
+      Returns:
+      0 – Invalid
+      1 - Valid */
+    if(input[1] == 'S' && input[2] == 'r'){
+      
+      raHH = strInput.substring(3,5).toInt();
+      raMM = strInput.substring(6,8).toInt();
+      raSS = strInput.substring(9).toInt();
+            
+      aSerial.print(1);
+    }
+
+    /*:StsDD*MM#
+      Sets the current site latitdue to sDD*MM#
+      Returns:
+      0 – Invalid
+      1 - Valid */
+    if(input[1] == 'S' && input[2] == 't'){
+      int inLatD = 0;
+      
+      if(input[3] == '-'){
+        inLatD = strInput.substring(3,5).toInt();
+      }else{
+        inLatD = strInput.substring(4,5).toInt();
+      }
+
+      long inLatM = strInput.substring(7,8).toInt();
+      inLatM = inLatM/60;
+      flat = inLatD + inLatM;
+      if(flon != 0 && flat != 0){
+        myAstro.setLatLong((double)flat, (double)flon);
+      }
+            
+      aSerial.print(1);
+    }
+
 
     for(int i = 0; i < numChars; i++){
       input[i] = '\0';
