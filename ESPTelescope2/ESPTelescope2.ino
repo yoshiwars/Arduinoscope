@@ -14,6 +14,10 @@ Start Configurable Items
 #define MOUNT_NAME "Telescope8"                    //Name of the Mount - Bluetooth Name etc.
 #define FIRMWARE_VERSION "0.1"                     //Just for Informational Purposes
 #define FIRMWARE_DATE "MAY 09 2024"                //Just for Informational Purposes
+#define SITE_1_NAME "Home"
+#define SITE_2_NAME "Site2Name"
+#define SITE_3_NAME "Site3Name"
+#define SITE_4_NAME "Site4Name"
 
 const int GEAR_RATIO = 15;                       //where 1 is no gearing (ex. 300 Tooth gear / 20 tooth gear = 15), 15 Telescope, 1 Binoc
 const double SINGLE_STEP_DEGREE =  360.0 / 200.0;    // the motor has 200 regular steps for 360 degrees (360 divided by 200 = 1.8)
@@ -58,6 +62,7 @@ const int DATA_PIN = 5;                         //Pin connected to DS of 74HC595
 //#define DEBUG_X_JOYSTICK
 //#define DEBUG_Y_JOYSTICK 
 //#define DEBUG_GPS
+//#define DEBUG_COMMS
 /************************************************************************************************************************
 End Configurable Items
 *************************************************************************************************************************/
@@ -94,6 +99,7 @@ AccelStepper focuser = AccelStepper(FOCUS_INTERFACE_TYPE,FOCUS_STEP_PIN,FOCUS_DI
 float xSpeed = 0;
 float ySpeed = 0;
 float fSpeed = 0;
+float fSpeedSerial = MAX_FOCUS_SPEED;
 float realXSpeed = 0;
 float realYSpeed = 0;
 float realFSpeed = 0;
@@ -313,6 +319,8 @@ void setup() {
   
   #ifdef DEBUG
     Serial.println("Start Up");
+    Serial.print("Mount Name: ");
+    Serial.println(MOUNT_NAME);
   #endif
 
   #ifdef MIN_PULSE_WIDTH
@@ -560,6 +568,9 @@ void communication(Stream &aSerial)
   if(newData){
 
     String strInput = String(input);
+    #ifdef DEBUG_COMMS
+      display.printFixed(0,  40, input, STYLE_NORMAL);
+    #endif
 
     //C - Sync Control
     /*:CM# Synchronizes the telescope's position with the currently selected database object's coordinates.
@@ -701,6 +712,39 @@ void communication(Stream &aSerial)
       }
     }
 
+    //F – Focuser Control
+    /*:F+# Start Focuser moving inward (toward objective)
+      Returns: None*/
+    if(input[1] == 'F' && input[2] == '+'){
+      setFSpeed(fSpeedSerial);
+    }
+
+    /*:F-# Start Focuser moving outward (away from objective)
+      Returns: None*/
+    if(input[1] == 'F' && input[2] == '-'){
+      setFSpeed(-fSpeedSerial);
+    }
+
+    /*:FQ# Halt Focuser Motion
+      Returns: Nothing*/
+    if(input[1] == 'F' && input[2] == 'Q'){
+      setFSpeed(0);
+    }
+
+    /*:FF# Set Focus speed to fastest setting
+      Returns: Nothing */
+    if(input[1] == 'F' && isDigit(input[2])){
+      float fSpeedMultiplier = (int) input[2];
+      fSpeedMultiplier = fSpeedMultiplier/4;
+      fSpeedSerial = MAX_FOCUS_SPEED * fSpeedMultiplier;
+    }
+
+    /*:FS# Set Focus speed to slowest setting
+      Returns: Nothing */
+    if(input[1] == 'F' && input[2] == 'S'){
+      fSpeedSerial = MAX_FOCUS_SPEED;
+    }
+
     //G – Get Telescope Information
     /*:GC# Get current date.
       Returns: MM/DD/YY#
@@ -717,6 +761,14 @@ void communication(Stream &aSerial)
       sprintf(charDate, "%02d/%02d/%02d#", month(), day(), (year()-2000));
             
       aSerial.print(charDate);
+    }
+
+    /*:Gc# Get Calendar Format
+      Returns: 12# or 24#
+      Depending on the current telescope format setting. */
+    if(input[1] == 'G' && input[2] == 'c'){
+      
+      aSerial.print("24#");
     }
 
     /*:GD# Get Telescope Declination.
@@ -780,6 +832,34 @@ void communication(Stream &aSerial)
       char charDate[12];
       sprintf(charDate, "%02d:%02d:%02d#", getRaHH(myAstro.getLT()), getRaMM(myAstro.getLT()), getRaSS(myAstro.getLT()));
       aSerial.print(charDate);
+    }
+
+    /*:GM# Get Site 1 Name
+      Returns: <string>#
+      A ‘#’ terminated string with the name of the requested site. */
+    if(input[1] == 'G' && input[2] == 'M'){
+      aSerial.print(SITE_1_NAME);
+    }
+
+    /*:GN# Get Site 2 Name
+      Returns: <string>#
+      A ‘#’ terminated string with the name of the requested site. */
+    if(input[1] == 'G' && input[2] == 'N'){
+      aSerial.print(SITE_2_NAME);
+    }
+    
+    /*:GO# Get Site 3 Name
+      Returns: <string>#
+      A ‘#’ terminated string with the name of the requested site. */
+    if(input[1] == 'G' && input[2] == 'O'){
+      aSerial.print(SITE_3_NAME);
+    }
+
+    /*:GP# Get Site 4 Name
+      Returns: <string>#
+      A ‘#’ terminated string with the name of the requested site. */
+    if(input[1] == 'G' && input[2] == 'P'){
+      aSerial.print(SITE_4_NAME);
     }
 
     /*:GR# Get Telescope RA
@@ -957,6 +1037,7 @@ void communication(Stream &aSerial)
       myAstro.useAutoDST();
 
       aSerial.print(1);
+      aSerial.print("Updating Planetary Data# #");
     }
 
     /*:SdsDD*MM#
@@ -993,8 +1074,9 @@ void communication(Stream &aSerial)
       0 – Invalid
       1 - Valid */
     if(input[1] == 'S' && input[2] == 'g'){
-       int inLonD = strInput.substring(3,5).toInt();
-       long inLonM = strInput.substring(7,8).toInt();
+       int inLonD = strInput.substring(3,6).toInt();
+       float inLonM = (float)strInput.substring(7,9).toInt();
+
        inLonM = inLonM/60;
        flon = inLonD + inLonM;
        if(flon != 0 && flat != 0){
@@ -1040,14 +1122,14 @@ void communication(Stream &aSerial)
       int inLatD = 0;
       
       if(input[3] == '-'){
-        inLatD = strInput.substring(3,5).toInt();
+        inLatD = strInput.substring(3,6).toInt();
       }else{
-        inLatD = strInput.substring(4,5).toInt();
+        inLatD = strInput.substring(4,6).toInt();
       }
 
-      long inLatM = strInput.substring(7,8).toInt();
-      inLatM = inLatM/60;
-      flat = inLatD + inLatM;
+      float inLatF = ((float)strInput.substring(7,9).toInt())/60;
+      
+      flat = inLatD + inLatF;
       if(flon != 0 && flat != 0){
         myAstro.setLatLong((double)flat, (double)flon);
       }
