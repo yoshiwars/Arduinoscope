@@ -14,7 +14,8 @@ Start Configurable Items
 #define MOUNT_NAME "Telescope8"                    //Name of the Mount - Bluetooth Name etc.
 #define FIRMWARE_VERSION "0.1"                     //Just for Informational Purposes
 #define FIRMWARE_DATE "MAY 09 2024"                //Just for Informational Purposes
-#define SITE_1_NAME "Home"
+#define FIRMWARE_TIME "12:00:00"
+#define SITE_1_NAME "Home"                         //These need to be in EEPROM
 #define SITE_2_NAME "Site2Name"
 #define SITE_3_NAME "Site3Name"
 #define SITE_4_NAME "Site4Name"
@@ -534,11 +535,7 @@ void accelerateMove(){
 void communication(Stream &aSerial)
 {
   byte inByte = aSerial.read();
-  static unsigned int input_pos = 0;
-  
-  char txRA[10];
-  char txDEC[11];
-    
+  static unsigned int input_pos = 0;    
   switch(inByte){
     case 6:
       aSerial.print("A");
@@ -574,260 +571,20 @@ void communication(Stream &aSerial)
 
     switch (input[1]){
       case 'C': //C - Sync Control
-        syncControl(input[2], aSerial);
+        commsSyncControl(input[2], aSerial);
         break;
-
+      case 'D': //D - Distance Bars
+        commsDistanceBars(aSerial);
+        break;
+      case 'F': //F – Focuser Control
+        commsFocuserControl(input[2]);
+        break;
+      case 'G': //G – Get Telescope Information
+        commsGetTelescopeInfo(aSerial);
     }
 
     
     
-
-    //D - Distance Bars
-    /*:D# Requests a string of bars indicating the distance to the current library object.
-      Returns:
-      LX200's – a string of bar characters indicating the distance. */
-    if(input[1] == 'D'){
-      if(slewComplete){
-        aSerial.print("#");
-      }else{
-        aSerial.print("-#");
-      }
-    }
-
-    //F – Focuser Control
-    /*:F+# Start Focuser moving inward (toward objective)
-      Returns: None*/
-    if(input[1] == 'F' && input[2] == '+'){
-      setFSpeed(fSpeedSerial);
-    }
-
-    /*:F-# Start Focuser moving outward (away from objective)
-      Returns: None*/
-    if(input[1] == 'F' && input[2] == '-'){
-      setFSpeed(-fSpeedSerial);
-    }
-
-    /*:FQ# Halt Focuser Motion
-      Returns: Nothing*/
-    if(input[1] == 'F' && input[2] == 'Q'){
-      setFSpeed(0);
-    }
-
-    /*:FF# Set Focus speed to fastest setting
-      Returns: Nothing */
-    if(input[1] == 'F' && isDigit(input[2])){
-      float fSpeedMultiplier = (int) input[2];
-      fSpeedMultiplier = fSpeedMultiplier/4;
-      fSpeedSerial = MAX_FOCUS_SPEED * fSpeedMultiplier;
-    }
-
-    /*:FS# Set Focus speed to slowest setting
-      Returns: Nothing */
-    if(input[1] == 'F' && input[2] == 'S'){
-      fSpeedSerial = MAX_FOCUS_SPEED;
-    }
-
-    //G – Get Telescope Information
-    /*:GC# Get current date.
-      Returns: MM/DD/YY#
-      The current local calendar date for the telescope. */
-    if(input[1] == 'G' && input[2] == 'C'){
-      //Get Telescope Local Date
-      setTime(gps.time.hour(), gps.time.minute(), gps.time.second(), gps.date.day(), gps.date.month(), gps.date.year());
-      
-      if(myAstro.getLT() > myAstro.getGMT()){
-        adjustTime(-1*((24 + myAstro.getGMT()) - myAstro.getLT())*3600);
-      }
-      char charDate[12];
-      
-      sprintf(charDate, "%02d/%02d/%02d#", month(), day(), (year()-2000));
-            
-      aSerial.print(charDate);
-    }
-
-    /*:Gc# Get Calendar Format
-      Returns: 12# or 24#
-      Depending on the current telescope format setting. */
-    if(input[1] == 'G' && input[2] == 'c'){
-      
-      aSerial.print("24#");
-    }
-
-    /*:GD# Get Telescope Declination.
-      Returns: sDD*MM# or sDD*MM’SS#
-      Depending upon the current precision setting for the telescope. */
-    if (input[1] == 'G' && input[2] == 'D') {
-
-      float totalAz  = addSteps(-1*xStepper.currentPosition(), currentAz, AZ);
-      float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, ALT);
-
-      myAstro.setAltAz(totalAlt, totalAz);
-      myAstro.doAltAz2RAdec();
-      
-      float aDec = myAstro.getDeclinationDec();
-  
-      char decCase;
-  
-      if(aDec < 0){
-        decCase = 45;
-      }else{
-        decCase = 43;
-      }
-      
-      sprintf(txDEC, "%c%02d%c%02d:%02d#", decCase, getDecDeg(aDec), 223, getDecMM(aDec),getDecSS(aDec));
-      aSerial.print(txDEC);
-    }
-
-    /*:GG# Get UTC offset time
-      Returns: sHH# or sHH.H#
-      The number of decimal hours to add to local time to convert it to UTC. If the number is a whole number the
-      sHH# form is returned, otherwise the longer form is return. On Autostar and LX200GPS, the daylight savings
-      setting in effect is factored into returned value. */
-    if(input[1] == 'G' && input[2] == 'G'){
-      int calcOffset = (myAstro.getLT() < myAstro.getGMT()? myAstro.getGMT() : myAstro.getGMT() + 24) - myAstro.getLT();
-      
-      aSerial.print(calcOffset);
-      aSerial.print("#");
-    }
-
-    /*:Gg# Get Current Site Longitude
-      Returns: sDDD*MM#
-      The current site Longitude. East Longitudes are expressed as negative*/
-    if(input[1] == 'G' && input[2] == 'g'){
-      float lon = gps.location.lng();
-      
-      char charLon[20];
-
-      int lonDeg = (int) lon;
-      float lonMinutesRemainder = abs(lon - lonDeg) * 60;
-      int lonMin = (int) lonMinutesRemainder;
-
-      lonDeg *= -1;
-
-      sprintf(charLon, "%03d*%02d#", lonDeg, lonMin);
-      aSerial.print(charLon);
-    }
-
-    /*:GL# Get Local Time in 24 hour format
-      Returns: HH:MM:SS# */
-    if(input[1] == 'G' && input[2] == 'L'){
-      char charDate[12];
-      sprintf(charDate, "%02d:%02d:%02d#", getRaHH(myAstro.getLT()), getRaMM(myAstro.getLT()), getRaSS(myAstro.getLT()));
-      aSerial.print(charDate);
-    }
-
-    /*:GM# Get Site 1 Name
-      Returns: <string>#
-      A ‘#’ terminated string with the name of the requested site. */
-    if(input[1] == 'G' && input[2] == 'M'){
-      aSerial.print(SITE_1_NAME);
-    }
-
-    /*:GN# Get Site 2 Name
-      Returns: <string>#
-      A ‘#’ terminated string with the name of the requested site. */
-    if(input[1] == 'G' && input[2] == 'N'){
-      aSerial.print(SITE_2_NAME);
-    }
-    
-    /*:GO# Get Site 3 Name
-      Returns: <string>#
-      A ‘#’ terminated string with the name of the requested site. */
-    if(input[1] == 'G' && input[2] == 'O'){
-      aSerial.print(SITE_3_NAME);
-    }
-
-    /*:GP# Get Site 4 Name
-      Returns: <string>#
-      A ‘#’ terminated string with the name of the requested site. */
-    if(input[1] == 'G' && input[2] == 'P'){
-      aSerial.print(SITE_4_NAME);
-    }
-
-    /*:GR# Get Telescope RA
-      Returns: HH:MM.T# or HH:MM:SS#
-      Depending which precision is set for the telescope */    
-    if (input[1] == 'G' && input[2] == 'R') {
-      float totalAz = addSteps(-1*xStepper.currentPosition(), currentAz, AZ);
-      float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, ALT);
-      
-      myAstro.setAltAz(totalAlt, totalAz);
-      myAstro.doAltAz2RAdec();
-
-      float aRa = myAstro.getRAdec();
-      
-      sprintf(txRA, "%02d:%02d:%02d#", getRaHH(aRa), getRaMM(aRa), getRaSS(aRa));
-      aSerial.print(txRA);
-    }
-
-    /*:Gt# Get Current Site Latitdue
-      Returns: sDD*MM#
-      The latitude of the current site. Positive inplies North latitude. */
-    if(input[1] == 'G' && input[2] == 't'){
-      float lat = gps.location.lat();
-      
-      char charLat[20];
-
-      int latDeg = (int) lat;
-      float latMinutesRemainder = abs(lat-latDeg) * 60;
-      int latMin = (int)latMinutesRemainder;
-
-      sprintf(charLat, "%02d*%02d#", latDeg, latMin);
-      aSerial.print(charLat);
-    }
-
-    /*:GVD# Get Telescope Firmware Date
-      Returns: mmm dd yyyy# */
-    if(input[1] == 'G' && input[2] == 'V' && input[3] == 'D'){
-      aSerial.print(FIRMWARE_DATE);
-      aSerial.print("#");
-    }
-
-    /*:GVN# Get Telescope Firmware Number
-      Returns: dd.d# */
-    if(input[1] == 'G' && input[2] == 'V' && input[3] == 'N'){
-      //Get Firmware Number
-      aSerial.print(FIRMWARE_VERSION);
-      aSerial.print("#");
-    }
-
-    /*:GVP# Get Telescope Product Name
-      Returns: <string># */
-    if(input[1] == 'G' && input[2] == 'V' && input[3] == 'P'){
-      //Get Telescope Name
-      aSerial.print(MOUNT_NAME);
-      aSerial.print("#");
-    }
-
-    /*:GVT# Get Telescope Firmware Time
-      returns: HH:MM:SS# */
-    if(input[1] == 'G' && input[2] == 'V' && input[3] == 'T'){
-      //Get Telescope Firmware Time
-      char charDate[12];
-      sprintf(charDate, "%02d:%02d:%02d#", 23, 13, 00);
-      
-      aSerial.print(charDate);
-    }
-
-
-    if(input[1] == 'G' && input[2] == 'W'){
-      //Get Track State
-      aSerial.print("A");
-      
-      if(isTracking){
-        aSerial.print("T");
-      }else{
-        aSerial.print("N");
-      }
-
-      if(synced){
-        aSerial.print("1");
-      }else{
-        aSerial.print("0");
-      }
-
-      aSerial.print("#");
-    }
 
     //M – Telescope Movement Commands
     //Movement
@@ -1027,7 +784,8 @@ void communication(Stream &aSerial)
   }
 }
 
-void syncControl(char input2, Stream &aSerial){
+//C - Sync Control
+void commsSyncControl(char input2, Stream &aSerial){
   /*:CM# Synchronizes the telescope's position with the currently selected database object's coordinates.
         Returns:
         LX200's - a "#" terminated string with the name of the object that was synced.
@@ -1153,6 +911,215 @@ void syncControl(char input2, Stream &aSerial){
       }
       
       aSerial.print(1);      
+    }
+}
+//D - Distance Bars
+void commsDistanceBars(Stream &aSerial){
+  /*:D# Requests a string of bars indicating the distance to the current library object.
+      Returns:
+      LX200's – a string of bar characters indicating the distance. */
+    
+    if(slewComplete){
+      aSerial.print("#");
+    }else{
+      aSerial.print("-#");
+    }
+}
+
+//F – Focuser Control
+void commsFocuserControl(char input2){
+  
+    switch(input2){
+      case '+': //:F+# Start Focuser moving inward (toward objective) Returns: None
+        setFSpeed(fSpeedSerial);
+        break;
+
+      case '-': //:F-# Start Focuser moving outward (away from objective) Returns: None
+        setFSpeed(-fSpeedSerial);
+        break;
+
+      case 'Q': //:FQ# Halt Focuser Motion Returns: Nothing
+        setFSpeed(0);
+        break;
+
+      case 'F': //:FF# Set Focus speed to fastest setting Returns: Nothing
+        fSpeedSerial = MAX_FOCUS_SPEED;
+        break;
+
+      case 'S': //:FS# Set Focus speed to slowest setting Returns: Nothing
+        fSpeedSerial = MAX_FOCUS_SPEED/4;
+        break;
+      default: //:F<n># Autostar & LX200GPS – set focuser speed to <n> where <n> is an ASCII digit 1..4 Returns: Nothing LX200 – Not Supported 
+        if(isDigit(input2)){
+          float fSpeedMultiplier = (int) input[2];
+          fSpeedMultiplier = fSpeedMultiplier/4;
+          fSpeedSerial = MAX_FOCUS_SPEED * fSpeedMultiplier;
+        }
+        break;
+    }
+}
+
+//G – Get Telescope Information
+void commsGetTelescopeInfo(Stream &aSerial){
+    
+    switch(input[2]){
+      
+      case 'C': //:GC# Get current date. Returns: MM/DD/YY# The current local calendar date for the telescope.
+        //Get Telescope Local Date
+        {
+          setTime(gps.time.hour(), gps.time.minute(), gps.time.second(), gps.date.day(), gps.date.month(), gps.date.year());
+          if(myAstro.getLT() > myAstro.getGMT()){
+            adjustTime(-1*((24 + myAstro.getGMT()) - myAstro.getLT())*3600);
+          }
+          char charDate[12];
+          
+          sprintf(charDate, "%02d/%02d/%02d#", month(), day(), (year()-2000));
+                
+          aSerial.print(charDate);
+          break;
+        }
+      
+      case 'c': //:Gc# Get Calendar Format Returns: 12# or 24# Depending on the current telescope format setting.
+        aSerial.print("24#");
+        break;
+
+      case 'D': //:GD# Get Telescope Declination. Returns: sDD*MM# or sDD*MM’SS# Depending upon the current precision setting for the telescope.
+        {
+          float totalAz  = addSteps(-1*xStepper.currentPosition(), currentAz, AZ);
+          float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, ALT);
+
+          myAstro.setAltAz(totalAlt, totalAz);
+          myAstro.doAltAz2RAdec();
+          
+          float aDec = myAstro.getDeclinationDec();
+      
+          char decCase;
+      
+          if(aDec < 0){
+            decCase = 45;
+          }else{
+            decCase = 43;
+          }
+          
+          char txDEC[11];
+          sprintf(txDEC, "%c%02d%c%02d:%02d#", decCase, getDecDeg(aDec), 223, getDecMM(aDec),getDecSS(aDec));
+          aSerial.print(txDEC);
+          break;
+        }
+      case 'G': //:GG# Get UTC offset time Returns: sHH# or sHH.H#
+        /* The number of decimal hours to add to local time to convert it to UTC. If the number is a whole number the
+        sHH# form is returned, otherwise the longer form is return. On Autostar and LX200GPS, the daylight savings
+        setting in effect is factored into returned value. */
+        {
+          int calcOffset = (myAstro.getLT() < myAstro.getGMT()? myAstro.getGMT() : myAstro.getGMT() + 24) - myAstro.getLT();
+          aSerial.print(calcOffset);
+          aSerial.print("#");
+          break;
+        }
+      case 'g': //:Gg# Get Current Site Longitude Returns: sDDD*MM# The current site Longitude. East Longitudes are expressed as negative
+        {
+          float lon = gps.location.lng();
+          char charLon[20];
+
+          int lonDeg = (int) lon;
+          float lonMinutesRemainder = abs(lon - lonDeg) * 60;
+          int lonMin = (int) lonMinutesRemainder;
+
+          lonDeg *= -1;
+
+          sprintf(charLon, "%03d*%02d#", lonDeg, lonMin);
+          aSerial.print(charLon);
+          break;
+        }
+      case 'L': //:GL# Get Local Time in 24 hour format  Returns: HH:MM:SS#
+        {
+          char charDate[12];
+          sprintf(charDate, "%02d:%02d:%02d#", getRaHH(myAstro.getLT()), getRaMM(myAstro.getLT()), getRaSS(myAstro.getLT()));
+          aSerial.print(charDate);
+          break;
+        }
+      case 'M': //:GM# Get Site 1 Name Returns: <string># A ‘#’ terminated string with the name of the requested site.
+        aSerial.print(SITE_1_NAME);
+        aSerial.print("#");
+        break;
+
+      case 'N': //:GN# Get Site 2 Name Returns: <string>#  A ‘#’ terminated string with the name of the requested site.
+        aSerial.print(SITE_2_NAME);
+        aSerial.print("#");
+        break;
+
+      case 'O': //:GO# Get Site 3 Name Returns: <string># A ‘#’ terminated string with the name of the requested site.
+        aSerial.print(SITE_3_NAME);
+        aSerial.print("#");
+        break;
+      case 'P': //:GP# Get Site 4 Name Returns: <string># A ‘#’ terminated string with the name of the requested site.
+        aSerial.print(SITE_4_NAME);
+        aSerial.print("#");
+        break;
+
+      case 'R': //:GR# Get Telescope RA Returns: HH:MM.T# or HH:MM:SS# Depending which precision is set for the telescope
+        {
+          float totalAz = addSteps(-1*xStepper.currentPosition(), currentAz, AZ);
+          float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, ALT);
+          
+          myAstro.setAltAz(totalAlt, totalAz);
+          myAstro.doAltAz2RAdec();
+
+          float aRa = myAstro.getRAdec();
+          char txRA[10];
+          sprintf(txRA, "%02d:%02d:%02d#", getRaHH(aRa), getRaMM(aRa), getRaSS(aRa));
+          aSerial.print(txRA);
+          break;
+        }
+      case 't': //:Gt# Get Current Site Latitdue Returns: sDD*MM# The latitude of the current site. Positive inplies North latitude.
+        {
+          float lat = gps.location.lat();
+          char charLat[20];
+
+          int latDeg = (int) lat;
+          float latMinutesRemainder = abs(lat-latDeg) * 60;
+          int latMin = (int)latMinutesRemainder;
+
+          sprintf(charLat, "%02d*%02d#", latDeg, latMin);
+          aSerial.print(charLat);
+          break;
+        }
+      case 'V': //Telescope Info
+        switch(input[3]){
+          case 'D': //:GVD# Get Telescope Firmware Date Returns: mmm dd yyyy#
+            aSerial.print(FIRMWARE_DATE);
+            aSerial.print("#");
+            break;
+          case 'N': //:GVN# Get Telescope Firmware Number Returns: dd.d# 
+            aSerial.print(FIRMWARE_VERSION);
+            aSerial.print("#");
+            break;
+          case 'P': //:GVP# Get Telescope Product Name Returns: <string># 
+            aSerial.print(MOUNT_NAME);
+            aSerial.print("#");
+            break;
+          case 'T': //:GVT# Get Telescope Firmware Time returns: HH:MM:SS#
+            aSerial.print(FIRMWARE_TIME);
+            aSerial.print("#");
+        }
+        break;
+      case 'W': //Get Track State
+        aSerial.print("A");
+      
+        if(isTracking){
+          aSerial.print("T");
+        }else{
+          aSerial.print("N");
+        }
+
+        if(synced){
+          aSerial.print("1");
+        }else{
+          aSerial.print("0");
+        }
+
+        aSerial.print("#");
+      break;
     }
 }
 
