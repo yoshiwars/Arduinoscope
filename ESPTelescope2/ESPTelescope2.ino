@@ -572,133 +572,15 @@ void communication(Stream &aSerial)
       display.printFixed(0,  40, input, STYLE_NORMAL);
     #endif
 
-    //C - Sync Control
-    /*:CM# Synchronizes the telescope's position with the currently selected database object's coordinates.
-        Returns:
-        LX200's - a "#" terminated string with the name of the object that was synced.
-        Autostars & LX200GPS - At static string: " M31 EX GAL MAG 3.5 SZ178.0'#" */
-    if(input[1] == 'C' && input[2] == 'M'){
-      
-      setXSpeed(0);
-      setYSpeed(0);
-  
-      //Slow down and stop
-      while(realYSpeed != ySpeed || realXSpeed != xSpeed){
-        accelerateMove();
-      }
+    switch (input[1]){
+      case 'C': //C - Sync Control
+        syncControl(input[2], aSerial);
+        break;
 
-      setCurrentPositions();
-            
-      myAstro.setRAdec(myAstro.decimalDegrees(raHH, raMM, raSS), myAstro.decimalDegrees(decD, decMM, decSS));
-      
-      myAstro.doRAdec2AltAz();
-      
-      if(screenMode == 4){ //alignment section
-        
-        
-        if(alignmentScreen < 3){
-
-          if(alignmentScreen == 0){
-            currentAlt = myAstro.getAltitude();
-            currentAz = myAstro.getAzimuth();
-            synced = true;
-          }
-          
-          alignmentAltValues[alignmentScreen][0] = myAstro.getAltitude();
-          alignmentAltValues[alignmentScreen][1] = currentAlt;
-          alignmentAzValues[alignmentScreen][0] = myAstro.getAzimuth();
-          alignmentAzValues[alignmentScreen][1] = currentAz;
-
-          currentAlt = myAstro.getAltitude();
-          currentAz = myAstro.getAzimuth();
-
-          synced = true;
-
-          alignmentScreen++;
-        }
-        
-        if(alignmentScreen == 3){
-          moving = false;
-          alignmentMenuItems[0] = "Move:  Disabled";
-          double alignmentAlt1 = alignmentAltValues[1][0] - alignmentAltValues[0][0];
-          while(alignmentAlt1 < 0){
-            alignmentAlt1 += 360;
-          }
-          while(alignmentAlt1 > 360){
-            alignmentAlt1 -= 360;
-          }
-
-          double alignmentAlt2 = alignmentAltValues[2][0] - alignmentAltValues[1][0];
-          while(alignmentAlt2 < 0){
-            alignmentAlt2 += 360;
-          }
-          while(alignmentAlt2 > 360){
-            alignmentAlt2 -= 360;
-          }
-
-          double currentAlt1 = alignmentAltValues[1][1] - alignmentAltValues[0][1];
-          while(currentAlt1 < 0){
-            currentAlt1 += 360;
-          }
-          while(currentAlt1 > 360){
-            currentAlt1 -= 360;
-          }
-
-          double currentAlt2 = alignmentAltValues[2][1] - alignmentAltValues[1][1];
-          while(currentAlt2 < 0){
-            currentAlt2 += 360;
-          }
-          while(currentAlt2 > 360){
-            currentAlt2 -= 360;
-          }
-          
-          alignmentAltOffset = 1 + ((abs(alignmentAlt1/currentAlt1) - abs(alignmentAlt2/currentAlt2))/2);
-
-          double alignmentAz1 = alignmentAzValues[1][0] - alignmentAzValues[0][0];
-          while(alignmentAz1 < 0){
-            alignmentAz1 += 360;
-          }
-          while(alignmentAz1 > 360){
-            alignmentAz1 -= 360;
-          }
-
-          double alignmentAz2 = alignmentAzValues[2][0] - alignmentAzValues[1][0];
-          while(alignmentAz2 < 0){
-            alignmentAz2 += 360;
-          }
-          while(alignmentAz2 > 360){
-            alignmentAz2 -= 360;
-          }
-
-          double currentAz1 = alignmentAzValues[1][1] - alignmentAzValues[0][1];
-          while(currentAz1 < 0){
-            currentAz1 += 360;
-          }
-          while(currentAz1 > 360){
-            currentAz1 -= 360;
-          }
-
-          double currentAz2 = alignmentAzValues[2][1] - alignmentAzValues[1][1];
-          while(currentAz2 < 0){
-            currentAz2 += 360;
-          }
-          while(currentAz2 > 360){
-            currentAz2 -= 360;
-          }
-
-          alignmentAzOffset = 1 + ((abs(alignmentAz1/currentAz1) - abs(alignmentAz2/currentAz2))/2);
-          showAlignmentConfirm();
-        }else{
-          showAlignmentMenu();
-        }
-      }else{
-        currentAlt = myAstro.getAltitude();
-        currentAz = myAstro.getAzimuth();
-        synced = true;
-      }
-      
-      aSerial.print(1);      
     }
+
+    
+    
 
     //D - Distance Bars
     /*:D# Requests a string of bars indicating the distance to the current library object.
@@ -1143,6 +1025,135 @@ void communication(Stream &aSerial)
     }
     newData = false;
   }
+}
+
+void syncControl(char input2, Stream &aSerial){
+  /*:CM# Synchronizes the telescope's position with the currently selected database object's coordinates.
+        Returns:
+        LX200's - a "#" terminated string with the name of the object that was synced.
+        Autostars & LX200GPS - At static string: " M31 EX GAL MAG 3.5 SZ178.0'#" */
+    if(input2 == 'M'){
+      
+      setXSpeed(0);
+      setYSpeed(0);
+  
+      //Slow down and stop
+      while(realYSpeed != ySpeed || realXSpeed != xSpeed){
+        accelerateMove();
+      }
+
+      setCurrentPositions();
+            
+      myAstro.setRAdec(myAstro.decimalDegrees(raHH, raMM, raSS), myAstro.decimalDegrees(decD, decMM, decSS));
+      
+      myAstro.doRAdec2AltAz();
+      
+      if(screenMode == 4){ //alignment section
+        
+        
+        if(alignmentScreen < 3){
+
+          if(alignmentScreen == 0){
+            currentAlt = myAstro.getAltitude();
+            currentAz = myAstro.getAzimuth();
+            synced = true;
+          }
+          
+          alignmentAltValues[alignmentScreen][0] = myAstro.getAltitude();
+          alignmentAltValues[alignmentScreen][1] = currentAlt;
+          alignmentAzValues[alignmentScreen][0] = myAstro.getAzimuth();
+          alignmentAzValues[alignmentScreen][1] = currentAz;
+
+          currentAlt = myAstro.getAltitude();
+          currentAz = myAstro.getAzimuth();
+
+          synced = true;
+
+          alignmentScreen++;
+        }
+        
+        if(alignmentScreen == 3){
+          moving = false;
+          alignmentMenuItems[0] = "Move:  Disabled";
+          double alignmentAlt1 = alignmentAltValues[1][0] - alignmentAltValues[0][0];
+          while(alignmentAlt1 < 0){
+            alignmentAlt1 += 360;
+          }
+          while(alignmentAlt1 > 360){
+            alignmentAlt1 -= 360;
+          }
+
+          double alignmentAlt2 = alignmentAltValues[2][0] - alignmentAltValues[1][0];
+          while(alignmentAlt2 < 0){
+            alignmentAlt2 += 360;
+          }
+          while(alignmentAlt2 > 360){
+            alignmentAlt2 -= 360;
+          }
+
+          double currentAlt1 = alignmentAltValues[1][1] - alignmentAltValues[0][1];
+          while(currentAlt1 < 0){
+            currentAlt1 += 360;
+          }
+          while(currentAlt1 > 360){
+            currentAlt1 -= 360;
+          }
+
+          double currentAlt2 = alignmentAltValues[2][1] - alignmentAltValues[1][1];
+          while(currentAlt2 < 0){
+            currentAlt2 += 360;
+          }
+          while(currentAlt2 > 360){
+            currentAlt2 -= 360;
+          }
+          
+          alignmentAltOffset = 1 + ((abs(alignmentAlt1/currentAlt1) - abs(alignmentAlt2/currentAlt2))/2);
+
+          double alignmentAz1 = alignmentAzValues[1][0] - alignmentAzValues[0][0];
+          while(alignmentAz1 < 0){
+            alignmentAz1 += 360;
+          }
+          while(alignmentAz1 > 360){
+            alignmentAz1 -= 360;
+          }
+
+          double alignmentAz2 = alignmentAzValues[2][0] - alignmentAzValues[1][0];
+          while(alignmentAz2 < 0){
+            alignmentAz2 += 360;
+          }
+          while(alignmentAz2 > 360){
+            alignmentAz2 -= 360;
+          }
+
+          double currentAz1 = alignmentAzValues[1][1] - alignmentAzValues[0][1];
+          while(currentAz1 < 0){
+            currentAz1 += 360;
+          }
+          while(currentAz1 > 360){
+            currentAz1 -= 360;
+          }
+
+          double currentAz2 = alignmentAzValues[2][1] - alignmentAzValues[1][1];
+          while(currentAz2 < 0){
+            currentAz2 += 360;
+          }
+          while(currentAz2 > 360){
+            currentAz2 -= 360;
+          }
+
+          alignmentAzOffset = 1 + ((abs(alignmentAz1/currentAz1) - abs(alignmentAz2/currentAz2))/2);
+          showAlignmentConfirm();
+        }else{
+          showAlignmentMenu();
+        }
+      }else{
+        currentAlt = myAstro.getAltitude();
+        currentAz = myAstro.getAzimuth();
+        synced = true;
+      }
+      
+      aSerial.print(1);      
+    }
 }
 
 void startSlew(){
