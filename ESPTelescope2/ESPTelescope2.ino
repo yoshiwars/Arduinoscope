@@ -1012,7 +1012,7 @@ void commsGetTelescopeInfo(Stream &aSerial){
           }
           
           char txDEC[11];
-          sprintf(txDEC, "%c%02d%c%02d:%02d#", decCase, getDecDeg(aDec), 223, getDecMM(aDec),getDecSS(aDec));
+          snprintf(txDEC, 11, "%c%02d%c%02d:%02d#", decCase, getDecDeg(aDec), 223, getDecMM(aDec),getDecSS(aDec));
           aSerial.print(txDEC);
           break;
         }
@@ -1029,22 +1029,22 @@ void commsGetTelescopeInfo(Stream &aSerial){
       case 'g': //:Gg# Get Current Site Longitude Returns: sDDD*MM# The current site Longitude. East Longitudes are expressed as negative
         {
           float lon = gps.location.lng();
-          char charLon[20];
-
+          
           int lonDeg = (int) lon;
           float lonMinutesRemainder = abs(lon - lonDeg) * 60;
           int lonMin = (int) lonMinutesRemainder;
 
           lonDeg *= -1;
 
-          sprintf(charLon, "%03d*%02d#", lonDeg, lonMin);
+          char charLon[20];
+          snprintf(charLon, 20, "%03d*%02d#", lonDeg, lonMin);
           aSerial.print(charLon);
           break;
         }
       case 'L': //:GL# Get Local Time in 24 hour format  Returns: HH:MM:SS#
         {
           char charDate[12];
-          sprintf(charDate, "%02d:%02d:%02d#", getRaHH(myAstro.getLT()), getRaMM(myAstro.getLT()), getRaSS(myAstro.getLT()));
+          snprintf(charDate, 12, "%02d:%02d:%02d#", getRaHH(myAstro.getLT()), getRaMM(myAstro.getLT()), getRaSS(myAstro.getLT()));
           aSerial.print(charDate);
           break;
         }
@@ -1077,20 +1077,20 @@ void commsGetTelescopeInfo(Stream &aSerial){
 
           float aRa = myAstro.getRAdec();
           char txRA[10];
-          sprintf(txRA, "%02d:%02d:%02d#", getRaHH(aRa), getRaMM(aRa), getRaSS(aRa));
+          snprintf(txRA, 10, "%02d:%02d:%02d#", getRaHH(aRa), getRaMM(aRa), getRaSS(aRa));
           aSerial.print(txRA);
           break;
         }
       case 't': //:Gt# Get Current Site Latitdue Returns: sDD*MM# The latitude of the current site. Positive inplies North latitude.
         {
           float lat = gps.location.lat();
-          char charLat[20];
-
+          
           int latDeg = (int) lat;
           float latMinutesRemainder = abs(lat-latDeg) * 60;
           int latMin = (int)latMinutesRemainder;
 
-          sprintf(charLat, "%02d*%02d#", latDeg, latMin);
+          char charLat[20];
+          snprintf(charLat, 20, "%02d*%02d#", latDeg, latMin);
           aSerial.print(charLat);
           break;
         }
@@ -1250,32 +1250,32 @@ void slewMode(){
           int decRemainingAz = (100 * abs(remainingAz) - abs(intRemainingAz));
           
           char charCurrentAlt[20];
-          sprintf(charCurrentAlt, "%d.%d", intAlt, decAlt);
+          snprintf(charCurrentAlt, 20, "%d.%d", intAlt, decAlt);
           display.printFixed(72, 0, "       ", STYLE_NORMAL);
           display.printFixed(72, 0, charCurrentAlt, STYLE_NORMAL);
           
           char charCurrentAz[20];
-          sprintf(charCurrentAz, "%d.%d", intAz, decAz);
+          snprintf(charCurrentAz, 20, "%d.%d", intAz, decAz);
           display.printFixed(72,  8, "       ", STYLE_NORMAL);
           display.printFixed(72,  8, charCurrentAz, STYLE_NORMAL);
       
           char charTargetAlt[20];
-          sprintf(charTargetAlt, "%d.%d", intTargetAlt, decTargetAlt);
+          snprintf(charTargetAlt, 20, "%d.%d", intTargetAlt, decTargetAlt);
           display.printFixed(72,  16, "       ", STYLE_NORMAL);
           display.printFixed(72,  16, charTargetAlt, STYLE_NORMAL);
       
           char charTargetAz[20];
-          sprintf(charTargetAz, "%d.%d", intTargetAz, decTargetAz);
+          snprintf(charTargetAz, 20, "%d.%d", intTargetAz, decTargetAz);
           display.printFixed(72,  24, "       ", STYLE_NORMAL);
           display.printFixed(72,  24, charTargetAz, STYLE_NORMAL);
 
           char charRemainingAlt[20];
-          sprintf(charRemainingAlt, "%d.%d", intRemainingAlt, decRemainingAlt);
+          snprintf(charRemainingAlt, 20, "%d.%d", intRemainingAlt, decRemainingAlt);
           display.printFixed(72,  32, "       ", STYLE_NORMAL);
           display.printFixed(72,  32, charRemainingAlt, STYLE_NORMAL);
 
           char charRemainingAz[20];
-          sprintf(charRemainingAz, "%d.%d", intRemainingAz, decRemainingAz);
+          snprintf(charRemainingAz, 20, "%d.%d", intRemainingAz, decRemainingAz);
           display.printFixed(72,  40, "       ", STYLE_NORMAL);
           display.printFixed(72,  40, charRemainingAz, STYLE_NORMAL);
           
@@ -1497,10 +1497,10 @@ void showOffsetsMenu(){
   screenMode = 5;
   display.clear();
   char output[16];
-  sprintf(output, "Alt: %f", moveOffsets[ALT]);
+  snprintf(output, 16, "Alt: %f", moveOffsets[ALT]);
   offSetsMenuItems[1] = output;
   char output2[16];
-  sprintf(output2, "Az:  %f", moveOffsets[AZ]);
+  snprintf(output2, 16, "Az:  %f", moveOffsets[AZ]);
   offSetsMenuItems[2] = output2;
   offsetsMenu.show(display);
 }
@@ -1514,11 +1514,11 @@ void showGotoMenu(){
   gotoMenuItems[1] = output;
 
   char output2[16];
-  sprintf(output2, "Messier: M%u", messierObject);
+  snprintf(output2, 16, "Messier: M%u", messierObject);
   gotoMenuItems[2] = output2;
   
   char output3[16];
-  sprintf(output3, "Caldwell: %u", caldwellObject);
+  snprintf(output3, 16, "Caldwell: %u", caldwellObject);
   gotoMenuItems[3] = output3;
   
   gotoMenu.show(display); 
