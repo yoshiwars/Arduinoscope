@@ -256,7 +256,8 @@ TinyGPSPlus gps;
 bool gpsAcquired = false;
 long lastGPSCheck = 0;
 
-float flat = 0, flon = 0;
+float flat = 0;
+float flon = 0;
 float faltitude;
 
 int sats;
@@ -1359,7 +1360,8 @@ void showInfo(){
   screenMode = 0;
   
   display.clear();
-  char lat[20], lon[20];
+  char lat[20];
+  char lon[20];
 
   int latDeg = (int) flat;
   float latMinutesRemainder = abs(flat-latDeg) * 60;
