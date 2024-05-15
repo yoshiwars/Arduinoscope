@@ -264,8 +264,12 @@ int sats;
 float gpsQueryTime;
 
 //hold the received RA, Dec
-int raHH, raMM, raSS;
-int decD, decMM, decSS;
+int raHH;
+int raMM;
+int raSS;
+int decD;
+int decMM;
+int decSS;
 
 //Sync coords
 double currentAlt = 0;
@@ -274,8 +278,12 @@ double moveOffsets[] = {1.0,1.0};
 double tempMoveOffsets[] = {1.0,1.0};
 
 //Target Coords for slewing
-int targetRaHH, targetRaMM, targetRaSS;
-int targetDecD, targetDecMM, targetDecSS;
+int targetRaHH;
+int targetRaMM;
+int targetRaSS;
+int targetDecD;
+int targetDecMM;
+int targetDecSS;
 double targetAlt;
 double targetAz;
 bool slewComplete = true;
@@ -445,6 +453,7 @@ void loop() {
     case 6: //Goto Menu
     case 7: //Planet Menu
     case 8: //Target Below Horizon
+    default:
       movementButtonControl();
       menuControl();
       break;
