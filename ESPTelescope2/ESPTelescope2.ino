@@ -983,7 +983,7 @@ void commsGetTelescopeInfo(Stream &aSerial){
           }
           char charDate[12];
           
-          sprintf(charDate, "%02d/%02d/%02d#", month(), day(), (year()-2000));
+          snprintf(charDate, 12, "%02d/%02d/%02d#", month(), day(), (year()-2000));
                 
           aSerial.print(charDate);
           break;
@@ -1360,9 +1360,7 @@ void showInfo(){
   screenMode = 0;
   
   display.clear();
-  char lat[20];
-  char lon[20];
-
+  
   int latDeg = (int) flat;
   float latMinutesRemainder = abs(flat-latDeg) * 60;
   int latMin = (int)latMinutesRemainder;
@@ -1374,37 +1372,39 @@ void showInfo(){
   float lonSec = (lonMinutesRemainder - lonMin) * 60;
 
   //Lat
-  sprintf(lat, "LAT: %02d,%02d", latDeg, latMin);
+  char lat[20];
+  snprintf(lat, 20, "LAT: %02d,%02d", latDeg, latMin);
   
   String latSecVal = lat;
   latSecVal.concat("'");
   latSecVal.concat(String(latSec));
   char charLat[20];
-  sprintf(charLat, latSecVal.c_str());
+  snprintf(charLat, 20, latSecVal.c_str());
   
   display.printFixed(0,  0, charLat, STYLE_NORMAL);
   
   //Lon
-  sprintf(lon, "LON: %02d,%02d", lonDeg, lonMin);
+  char lon[20];
+  snprintf(lon, 20, "LON: %02d,%02d", lonDeg, lonMin);
   String lonSecVal = lon;
   lonSecVal.concat("'");
   lonSecVal.concat(String(lonSec));
 
   char charPrint[20];
-  sprintf(charPrint, lonSecVal.c_str());
+  snprintf(charPrint, 20, lonSecVal.c_str());
   display.printFixed(0,  8, charPrint, STYLE_NORMAL);
 
   //Altitude
-  sprintf(charPrint,"Alt: %.02fm",faltitude);
+  snprintf(charPrint, 20, "Alt: %.02fm",faltitude);
   display.printFixed(0,  16, charPrint, STYLE_NORMAL);
   
 
   //Satellites
-  sprintf(charPrint, "Sats: %d", sats);
+  snprintf(charPrint, 20, "Sats: %d", sats);
   display.printFixed(0,24, charPrint, STYLE_NORMAL);
 
   //Local Time
-  sprintf(charPrint, "UTC Time: %02d:%02d", hour(), minute());
+  snprintf(charPrint, 20, "UTC Time: %02d:%02d", hour(), minute());
   display.printFixed(0,32, charPrint, STYLE_NORMAL);
 }
 
