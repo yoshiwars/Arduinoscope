@@ -15,7 +15,7 @@ Start Configurable Items
 #define FIRMWARE_VERSION "0.1"                     //Just for Informational Purposes
 #define FIRMWARE_DATE "MAY 09 2024"                //Just for Informational Purposes
 #define FIRMWARE_TIME "12:00:00"
-#define SITE_1_NAME "Home"                         //These need to be in EEPROM
+#define SITE_1_NAME "Home"                         //These need to be in EEPROM 
 #define SITE_2_NAME "Site2Name"
 #define SITE_3_NAME "Site3Name"
 #define SITE_4_NAME "Site4Name"
