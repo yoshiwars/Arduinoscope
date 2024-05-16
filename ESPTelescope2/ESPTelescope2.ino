@@ -449,11 +449,11 @@ void loop() {
         readJoystickAndMove();  
       }  
       break;
-    case 3: //Settings Menu
-    case 5: //OffsetsMenu
-    case 6: //Goto Menu
-    case 7: //Planet Menu
-    case 8: //Target Below Horizon
+    /*3 - Settings Menu
+    5 - OffsetsMenu
+    6 - Goto Menu
+    7 - Planet Menu
+    8 - Target Below Horizon */
     default:
       movementButtonControl();
       menuControl();
@@ -591,201 +591,20 @@ void communication(Stream &aSerial)
         break;
       case 'G': //G – Get Telescope Information
         commsGetTelescopeInfo(aSerial);
+        break;
+      case 'M': //M – Telescope Movement Commands
+        commsMovement(aSerial);
+        break;
+      case 'Q': //Q – Movement Commands - All Q commands should just stop the telescope.
+        setTrack();
+        break;
+      case 'R': //R – Slew Rate Commands
+        commsSlewRate();
+        break;
+      case 'S': //S – Telescope Set Commands 
+        commsSetCommands(aSerial);
+        break;
     }
-
-    
-    
-
-    //M – Telescope Movement Commands
-    //Movement
-    if(input[1] == 'M'){
-      isTracking = false;
-      if(input[2] == 'e'){ //:Me# Move Telescope East at current slew rate Returns: Nothing 
-        setXSpeed(50);
-      }
-      if(input[2] == 'w'){ //:Mw# Move Telescope West at current slew rate Returns: Nothing 
-        setXSpeed(-50);        
-      }
-      if(input[2] == 'n'){ //:Mn# Move Telescope North at current slew rate Returns: Nothing
-        setYSpeed(-50);
-      }
-      if(input[2] == 's'){ //:Ms# Move Telescope South at current slew rate Returns: Nothing 
-        setYSpeed(50);
-      }
-    }
-
-    /*:MS# Slew to Target Object
-      Returns:
-      0 Slew is Possible
-      1<string># Object Below Horizon w/string message
-      2<string># Object Below Higher w/string message */
-    if(input[1] == 'M' && input[2] == 'S'){
-      moving = false;
-      
-      targetRaHH = raHH;
-      targetRaMM = raMM;
-      targetRaSS = raSS;
-
-      targetDecD = decD;
-      targetDecMM = decMM;
-      targetDecSS = decSS;
-      
-      startSlew();
-      
-      aSerial.print(1);
-    }
-
-    //Q – Movement Commands
-    //stop moving
-    if(input[1] == 'Q'){
-      setTrack();
-      if(input[2] == 'e' || input[2] == 'w'){
-        
-      }else if(input[2] == 'n' || input[2] == 's'){
-        
-      }else{
-        
-      }
-    }
-
-    //R – Slew Rate Commands
-    //modify Slew Rate
-    if(input[1] == 'R'){
-      if(input[2] == 'C'){ //:RC# Set Slew rate to Centering rate (2nd slowest) Returns: Nothing 
-          stepperSpeed = 1;
-      }
-      if(input[2] == 'G'){ //:RG# Set Slew rate to Guiding Rate (slowest) Returns: Nothing
-          stepperSpeed = 0;
-      }
-      if(input[2] == 'M'){ //:RM# Set Slew rate to Find Rate (2nd Fastest) Returns: Nothing 
-          stepperSpeed = 2;
-      }
-      if(input[2] == 'S'){ //:RS# Set Slew rate to max (fastest) Returns: Nothing
-          stepperSpeed = 3;
-      }
-    }
-
-    //S – Telescope Set Commands 
-    /*:SCMM/DD/YY#
-      Change Handbox Date to MM/DD/YY
-      Returns: <D><string>
-        D = ‘0’ if the date is invalid. The string is the null string.
-        D = ‘1’ for valid dates and the string is “Updating Planetary Data#*/
-    if(input[1] == 'S' && input[2] == 'C'){
-      inMonth = strInput.substring(3,5).toInt();
-      inDay = strInput.substring(6,8).toInt();
-      inYear = strInput.substring(9).toInt();
-      inYear += 2000;
-
-      setTime(inHour, inMinute, inSecond, inDay, inMonth, inYear);
-
-      adjustTime(inHourOffset * 3600);
-
-      myAstro.setGMTdate(year(), month(), day());
-      myAstro.setGMTtime(hour(), minute(), second());
-      myAstro.useAutoDST();
-
-      aSerial.print(1);
-      aSerial.print("Updating Planetary Data# #");
-    }
-
-    /*:SdsDD*MM#
-      Set target object declination to sDD*MM or sDD*MM:SS depending on the current precision setting
-      Returns:
-      1 - Dec Accepted
-      0 – Dec invalid */
-    if(input[1] == 'S' && input[2] == 'd' ){
-      if(input[3] == '-'){
-        decD = strInput.substring(3,6).toInt();
-      }else{
-        decD = strInput.substring(4,6).toInt();
-      }
-      
-      decMM = strInput.substring(7,9).toInt();
-      decSS = strInput.substring(10,12).toInt();
-      
-      aSerial.print(1);
-    }
-
-    /*:SGsHH.H#
-      Set the number of hours added to local time to yield UTC
-      Returns:
-      0 – Invalid
-      1 - Valid */
-    if(input[1] == 'S' && input[2] == 'G'){
-      inHourOffset = strInput.substring(3,7).toInt();
-      aSerial.print(1);
-    }
-
-    /*:SgDDD*MM#
-      Set current site’s longitude to DDD*MM an ASCII position string
-      Returns:
-      0 – Invalid
-      1 - Valid */
-    if(input[1] == 'S' && input[2] == 'g'){
-       int inLonD = strInput.substring(3,6).toInt();
-       float inLonM = (float)strInput.substring(7,9).toInt();
-
-       inLonM = inLonM/60;
-       flon = inLonD + inLonM;
-       if(flon != 0 && flat != 0){
-          myAstro.setLatLong((double)flat, (double)flon);
-       }
-      aSerial.print(1);
-    } 
-
-    /*:SLHH:MM:SS#
-      Set the local Time
-      Returns:
-        0 – Invalid
-        1 - Valid */
-    if(input[1] == 'S' && input[2] == 'L'){
-      inHour = strInput.substring(3,5).toInt();
-      inMinute = strInput.substring(6,8).toInt();
-      inSecond = strInput.substring(9).toInt();
-      
-      aSerial.print(1);
-    }
-
-    /*:SrHH:MM.T#
-      :SrHH:MM:SS#
-      Set target object RA to HH:MM.T or HH:MM:SS depending on the current precision setting.
-      Returns:
-      0 – Invalid
-      1 - Valid */
-    if(input[1] == 'S' && input[2] == 'r'){
-      
-      raHH = strInput.substring(3,5).toInt();
-      raMM = strInput.substring(6,8).toInt();
-      raSS = strInput.substring(9).toInt();
-            
-      aSerial.print(1);
-    }
-
-    /*:StsDD*MM#
-      Sets the current site latitdue to sDD*MM#
-      Returns:
-      0 – Invalid
-      1 - Valid */
-    if(input[1] == 'S' && input[2] == 't'){
-      int inLatD = 0;
-      
-      if(input[3] == '-'){
-        inLatD = strInput.substring(3,6).toInt();
-      }else{
-        inLatD = strInput.substring(4,6).toInt();
-      }
-
-      float inLatF = ((float)strInput.substring(7,9).toInt())/60;
-      
-      flat = inLatD + inLatF;
-      if(flon != 0 && flat != 0){
-        myAstro.setLatLong((double)flat, (double)flon);
-      }
-            
-      aSerial.print(1);
-    }
-
 
     for(int i = 0; i < numChars; i++){
       input[i] = '\0';
@@ -1133,6 +952,181 @@ void commsGetTelescopeInfo(Stream &aSerial){
     }
 }
 
+//M – Telescope Movement Commands
+void commsMovement(Stream &aSerial){
+  isTracking = false;
+  switch (input[2]){
+    case 'e': //:Me# Move Telescope East at current slew rate Returns: Nothing
+      setXSpeed(50);
+      break;
+    case 'w': //:Mw# Move Telescope West at current slew rate Returns: Nothing 
+      setXSpeed(-50);
+      break;
+    case 'n': //:Mn# Move Telescope North at current slew rate Returns: Nothing
+      setYSpeed(-50);
+      break;
+    case 's': //:Ms# Move Telescope South at current slew rate Returns: Nothing 
+      setYSpeed(50);
+      break;
+      /*:MS# Slew to Target Object
+        Returns:
+        0 Slew is Possible
+        1<string># Object Below Horizon w/string message
+        2<string># Object Below Higher w/string message */
+    case 'S':
+      moving = false;
+  
+      targetRaHH = raHH;
+      targetRaMM = raMM;
+      targetRaSS = raSS;
+
+      targetDecD = decD;
+      targetDecMM = decMM;
+      targetDecSS = decSS;
+      
+      startSlew();
+      
+      aSerial.print(1);
+      break;
+  }
+}
+
+//R – Slew Rate Commands
+void commsSlewRate(){
+  switch(input[2]){
+    case 'C': //:RC# Set Slew rate to Centering rate (2nd slowest) Returns: Nothing 
+      stepperSpeed = 1;
+      break;
+    case 'G': //:RG# Set Slew rate to Guiding Rate (slowest) Returns: Nothing
+      stepperSpeed = 0;
+      break;
+    case 'M': //:RM# Set Slew rate to Find Rate (2nd Fastest) Returns: Nothing 
+      stepperSpeed = 2;
+      break;
+    case 'S': //:RS# Set Slew rate to max (fastest) Returns: Nothing
+      stepperSpeed = 3;
+      break;
+  }
+}
+
+//S – Telescope Set Commands 
+void commsSetCommands(Stream &aSerial){
+  switch(input[2]){
+    case 'C':
+      /*:SCMM/DD/YY#
+        Change Handbox Date to MM/DD/YY
+        Returns: <D><string>
+          D = ‘0’ if the date is invalid. The string is the null string.
+          D = ‘1’ for valid dates and the string is “Updating Planetary Data#*/
+      inMonth = strInput.substring(3,5).toInt();
+      inDay = strInput.substring(6,8).toInt();
+      inYear = strInput.substring(9).toInt();
+      inYear += 2000;
+
+      setTime(inHour, inMinute, inSecond, inDay, inMonth, inYear);
+
+      adjustTime(inHourOffset * 3600);
+
+      myAstro.setGMTdate(year(), month(), day());
+      myAstro.setGMTtime(hour(), minute(), second());
+      myAstro.useAutoDST();
+
+      aSerial.print(1);
+      aSerial.print("Updating Planetary Data# #");
+      break;
+    case 'd':
+      /*:SdsDD*MM#
+        Set target object declination to sDD*MM or sDD*MM:SS depending on the current precision setting
+        Returns:
+        1 - Dec Accepted
+        0 – Dec invalid */
+      if(input[3] == '-'){
+        decD = strInput.substring(3,6).toInt();
+      }else{
+        decD = strInput.substring(4,6).toInt();
+      }
+      
+      decMM = strInput.substring(7,9).toInt();
+      decSS = strInput.substring(10,12).toInt();
+      
+      aSerial.print(1);
+      break;
+    case 'G':
+      /*:SGsHH.H#
+        Set the number of hours added to local time to yield UTC
+        Returns:
+        0 – Invalid
+        1 - Valid */
+      inHourOffset = strInput.substring(3,7).toInt();
+      aSerial.print(1);
+      break;
+    case 'g':
+      /*:SgDDD*MM#
+        Set current site’s longitude to DDD*MM an ASCII position string
+        Returns:
+        0 – Invalid
+        1 - Valid */
+       int inLonD = strInput.substring(3,6).toInt();
+       float inLonM = (float)strInput.substring(7,9).toInt();
+
+       inLonM = inLonM/60;
+       flon = inLonD + inLonM;
+       if(flon != 0 && flat != 0){
+          myAstro.setLatLong((double)flat, (double)flon);
+       }
+      aSerial.print(1);
+      break;
+    case 'L':
+      /*:SLHH:MM:SS#
+        Set the local Time
+        Returns:
+          0 – Invalid
+          1 - Valid */
+      inHour = strInput.substring(3,5).toInt();
+      inMinute = strInput.substring(6,8).toInt();
+      inSecond = strInput.substring(9).toInt();
+      
+      aSerial.print(1);
+      break;
+    case 'r':
+      /*:SrHH:MM.T#
+        :SrHH:MM:SS#
+        Set target object RA to HH:MM.T or HH:MM:SS depending on the current precision setting.
+        Returns:
+        0 – Invalid
+        1 - Valid */
+      raHH = strInput.substring(3,5).toInt();
+      raMM = strInput.substring(6,8).toInt();
+      raSS = strInput.substring(9).toInt();
+            
+      aSerial.print(1);
+      break;
+    case 't':
+      /*:StsDD*MM#
+        Sets the current site latitdue to sDD*MM#
+        Returns:
+        0 – Invalid
+        1 - Valid */
+      int inLatD = 0;
+      
+      if(input[3] == '-'){
+        inLatD = strInput.substring(3,6).toInt();
+      }else{
+        inLatD = strInput.substring(4,6).toInt();
+      }
+
+      float inLatF = ((float)strInput.substring(7,9).toInt())/60;
+      
+      flat = inLatD + inLatF;
+      if(flon != 0 && flat != 0){
+        myAstro.setLatLong((double)flat, (double)flon);
+      }
+            
+      aSerial.print(1);
+      break;
+  }
+}
+
 void startSlew(){
   screenMode = 2;
   stepperSpeed = 3;
@@ -1176,7 +1170,7 @@ void slewMode(){
     remainingAz = targetAz - totalAz;
   }
   
-  double minStep = ((rotationDegrees)/GEAR_RATIO)/32;
+  double minStep = (rotationDegrees/GEAR_RATIO)/32;
   bool moveAz = false;
   bool moveAlt = false;
   float moveSpeed = 0;
@@ -1184,7 +1178,7 @@ void slewMode(){
   if(!slewComplete){
 
       if(
-          abs(remainingAz) > (stepperSpeed) &&
+          abs(remainingAz) > stepperSpeed &&
           abs(remainingAz) > minStep
       ){
           moveAz = true;
@@ -1690,7 +1684,7 @@ void movementButtonControl(){
                       alignmentMenuItems[0] = "Move:  Disabled";
                       setTrack();
                     }else{
-                      //display.printFixed(55,  8, "Enabled ", STYLE_NORMAL);
+                      
                       alignmentMenuItems[0] = "Move:  Enabled";
                       
                       if(isTracking){
@@ -1886,11 +1880,11 @@ void menuControl(){
       longYPressActive = true;
       if(y == -1){
         switch(screenMode){
-          
+          //place holders for long presses
         }
       }else if(y == 1){
         switch(screenMode){
-          
+          //place holders for long presses
         }
       }
       
