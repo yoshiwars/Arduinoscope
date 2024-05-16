@@ -2104,11 +2104,9 @@ void readJoystickAndMove(){
   int aYSpeed = 0;
 
   if(y > yDeadZone + 50){
-    //aYSpeed = map(y, (yDeadZone + 50), 512, 0, MAX_MOTOR_SPEED * ((stepperSpeed + 1) / 4));
     aYSpeed = map(y, (yDeadZone + 50), maxY, 0, MAX_MOTOR_SPEED * Y_INVERT);
     yMoving = true;
   }else if(y < yDeadZone - 50){
-    //aYSpeed = map(y, (yDeadZone - 50),-512,0, -MAX_MOTOR_SPEED * ((stepperSpeed + 1) / 4));
     aYSpeed = map(y, (yDeadZone - 50),0,0, -MAX_MOTOR_SPEED * Y_INVERT);
     yMoving = true;
   }else{
@@ -2126,11 +2124,9 @@ void readJoystickAndMove(){
   int aXSpeed = 0;
   
   if(x > xDeadZone + 50){
-    //aXSpeed = map(x, (xDeadZone + 50), 512, 0, MAX_MOTOR_SPEED * ((stepperSpeed + 1) / 4));
     aXSpeed = map(x, (xDeadZone + 50), maxX, 0, MAX_MOTOR_SPEED * X_INVERT);
     xMoving = true;    
   }else if(x < xDeadZone - 50){
-    //aXSpeed = map(x, (xDeadZone - 50),-512,0, -MAX_MOTOR_SPEED * ((stepperSpeed + 1) / 4));
     aXSpeed = map(x, (xDeadZone - 50),0,0, -MAX_MOTOR_SPEED * X_INVERT);
     xMoving = true;
   }else{
@@ -2147,7 +2143,6 @@ void readJoystickAndMove(){
 
 double addSteps(int steps, double inDegrees, int altAz){
   double fSteps = double(steps);
-  //fSteps = -1 * fSteps;
   double degree = (moveOffsets[altAz]) * ((fSteps * rotationDegrees)/GEAR_RATIO)/stepperDivider;
   
   double outDegrees = inDegrees + degree;
