@@ -602,7 +602,7 @@ void communication(Stream &aSerial)
         commsSlewRate();
         break;
       case 'S': //S – Telescope Set Commands 
-        commsSetCommands(aSerial);
+        commsSetCommands(aSerial, strInput);
         break;
     }
 
@@ -1010,14 +1010,13 @@ void commsSlewRate(){
 }
 
 //S – Telescope Set Commands 
-void commsSetCommands(Stream &aSerial){
-  switch(input[2]){
-    case 'C':
-      /*:SCMM/DD/YY#
-        Change Handbox Date to MM/DD/YY
-        Returns: <D><string>
-          D = ‘0’ if the date is invalid. The string is the null string.
-          D = ‘1’ for valid dates and the string is “Updating Planetary Data#*/
+void commsSetCommands(Stream &aSerial,String strInput){
+  switch(input[2]){ /*:SCMM/DD/YY#
+                      Change Handbox Date to MM/DD/YY
+                      Returns: <D><string>
+                        D = ‘0’ if the date is invalid. The string is the null string.
+                        D = ‘1’ for valid dates and the string is “Updating Planetary Data#*/
+    case 'C': {
       inMonth = strInput.substring(3,5).toInt();
       inDay = strInput.substring(6,8).toInt();
       inYear = strInput.substring(9).toInt();
@@ -1034,8 +1033,8 @@ void commsSetCommands(Stream &aSerial){
       aSerial.print(1);
       aSerial.print("Updating Planetary Data# #");
       break;
-    case 'd':
-      /*:SdsDD*MM#
+    }
+    case 'd': { /*:SdsDD*MM#
         Set target object declination to sDD*MM or sDD*MM:SS depending on the current precision setting
         Returns:
         1 - Dec Accepted
@@ -1051,22 +1050,22 @@ void commsSetCommands(Stream &aSerial){
       
       aSerial.print(1);
       break;
-    case 'G':
-      /*:SGsHH.H#
-        Set the number of hours added to local time to yield UTC
-        Returns:
-        0 – Invalid
-        1 - Valid */
+    }
+    case 'G': {  /*:SGsHH.H#
+                  Set the number of hours added to local time to yield UTC
+                  Returns:
+                  0 – Invalid
+                  1 - Valid */
       inHourOffset = strInput.substring(3,7).toInt();
       aSerial.print(1);
       break;
-    case 'g':
-      /*:SgDDD*MM#
-        Set current site’s longitude to DDD*MM an ASCII position string
-        Returns:
-        0 – Invalid
-        1 - Valid */
-       int inLonD = strInput.substring(3,6).toInt();
+    }
+    case 'g': { /*:SgDDD*MM#
+                  Set current site’s longitude to DDD*MM an ASCII position string
+                  Returns:
+                  0 – Invalid
+                  1 - Valid */
+      int inLonD = strInput.substring(3,6).toInt();
        float inLonM = (float)strInput.substring(7,9).toInt();
 
        inLonM = inLonM/60;
@@ -1076,37 +1075,37 @@ void commsSetCommands(Stream &aSerial){
        }
       aSerial.print(1);
       break;
-    case 'L':
-      /*:SLHH:MM:SS#
-        Set the local Time
-        Returns:
-          0 – Invalid
-          1 - Valid */
+    }
+    case 'L': { /*:SLHH:MM:SS#
+                  Set the local Time
+                  Returns:
+                    0 – Invalid
+                    1 - Valid */
       inHour = strInput.substring(3,5).toInt();
       inMinute = strInput.substring(6,8).toInt();
       inSecond = strInput.substring(9).toInt();
       
       aSerial.print(1);
       break;
-    case 'r':
-      /*:SrHH:MM.T#
-        :SrHH:MM:SS#
-        Set target object RA to HH:MM.T or HH:MM:SS depending on the current precision setting.
-        Returns:
-        0 – Invalid
-        1 - Valid */
+    }
+    case 'r':{ /*:SrHH:MM.T#
+                  :SrHH:MM:SS#
+                  Set target object RA to HH:MM.T or HH:MM:SS depending on the current precision setting.
+                  Returns:
+                  0 – Invalid
+                  1 - Valid */
       raHH = strInput.substring(3,5).toInt();
       raMM = strInput.substring(6,8).toInt();
       raSS = strInput.substring(9).toInt();
             
       aSerial.print(1);
       break;
-    case 't':
-      /*:StsDD*MM#
-        Sets the current site latitdue to sDD*MM#
-        Returns:
-        0 – Invalid
-        1 - Valid */
+    } 
+    case 't': { /*:StsDD*MM#
+                  Sets the current site latitdue to sDD*MM#
+                  Returns:
+                  0 – Invalid
+                  1 - Valid */
       int inLatD = 0;
       
       if(input[3] == '-'){
@@ -1124,6 +1123,7 @@ void commsSetCommands(Stream &aSerial){
             
       aSerial.print(1);
       break;
+    }
   }
 }
 
