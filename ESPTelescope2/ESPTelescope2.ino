@@ -635,109 +635,116 @@ void commsSyncControl(char input2, Stream &aSerial){
       
       myAstro.doRAdec2AltAz();
       
-      if(screenMode == 4){ //alignment section
-        
-        
-        if(alignmentScreen < 3){
+      switch(screenMode){
+        case 2: //sync while Slewing
+          if(slewComplete){ //when slew is complete calculate variance from object
 
-          if(alignmentScreen == 0){
+          }
+        case 4: //alignment section
+        {
+          if(alignmentScreen < 3){
+
+            if(alignmentScreen == 0){
+              currentAlt = myAstro.getAltitude();
+              currentAz = myAstro.getAzimuth();
+              synced = true;
+            }
+            
+            alignmentAltValues[alignmentScreen][0] = myAstro.getAltitude();
+            alignmentAltValues[alignmentScreen][1] = currentAlt;
+            alignmentAzValues[alignmentScreen][0] = myAstro.getAzimuth();
+            alignmentAzValues[alignmentScreen][1] = currentAz;
+
             currentAlt = myAstro.getAltitude();
             currentAz = myAstro.getAzimuth();
+
             synced = true;
+
+            alignmentScreen++;
           }
           
-          alignmentAltValues[alignmentScreen][0] = myAstro.getAltitude();
-          alignmentAltValues[alignmentScreen][1] = currentAlt;
-          alignmentAzValues[alignmentScreen][0] = myAstro.getAzimuth();
-          alignmentAzValues[alignmentScreen][1] = currentAz;
+          if(alignmentScreen == 3){
+            moving = false;
+            alignmentMenuItems[0] = "Move:  Disabled";
+            double alignmentAlt1 = alignmentAltValues[1][0] - alignmentAltValues[0][0];
+            while(alignmentAlt1 < 0){
+              alignmentAlt1 += 360;
+            }
+            while(alignmentAlt1 > 360){
+              alignmentAlt1 -= 360;
+            }
 
+            double alignmentAlt2 = alignmentAltValues[2][0] - alignmentAltValues[1][0];
+            while(alignmentAlt2 < 0){
+              alignmentAlt2 += 360;
+            }
+            while(alignmentAlt2 > 360){
+              alignmentAlt2 -= 360;
+            }
+
+            double currentAlt1 = alignmentAltValues[1][1] - alignmentAltValues[0][1];
+            while(currentAlt1 < 0){
+              currentAlt1 += 360;
+            }
+            while(currentAlt1 > 360){
+              currentAlt1 -= 360;
+            }
+
+            double currentAlt2 = alignmentAltValues[2][1] - alignmentAltValues[1][1];
+            while(currentAlt2 < 0){
+              currentAlt2 += 360;
+            }
+            while(currentAlt2 > 360){
+              currentAlt2 -= 360;
+            }
+            
+            alignmentAltOffset = 1 + ((abs(alignmentAlt1/currentAlt1) - abs(alignmentAlt2/currentAlt2))/2);
+
+            double alignmentAz1 = alignmentAzValues[1][0] - alignmentAzValues[0][0];
+            while(alignmentAz1 < 0){
+              alignmentAz1 += 360;
+            }
+            while(alignmentAz1 > 360){
+              alignmentAz1 -= 360;
+            }
+
+            double alignmentAz2 = alignmentAzValues[2][0] - alignmentAzValues[1][0];
+            while(alignmentAz2 < 0){
+              alignmentAz2 += 360;
+            }
+            while(alignmentAz2 > 360){
+              alignmentAz2 -= 360;
+            }
+
+            double currentAz1 = alignmentAzValues[1][1] - alignmentAzValues[0][1];
+            while(currentAz1 < 0){
+              currentAz1 += 360;
+            }
+            while(currentAz1 > 360){
+              currentAz1 -= 360;
+            }
+
+            double currentAz2 = alignmentAzValues[2][1] - alignmentAzValues[1][1];
+            while(currentAz2 < 0){
+              currentAz2 += 360;
+            }
+            while(currentAz2 > 360){
+              currentAz2 -= 360;
+            }
+
+            alignmentAzOffset = 1 + ((abs(alignmentAz1/currentAz1) - abs(alignmentAz2/currentAz2))/2);
+            showAlignmentConfirm();
+          }else{
+            showAlignmentMenu();
+          }
+          break;
+        }
+        default:
           currentAlt = myAstro.getAltitude();
           currentAz = myAstro.getAzimuth();
-
           synced = true;
-
-          alignmentScreen++;
-        }
-        
-        if(alignmentScreen == 3){
-          moving = false;
-          alignmentMenuItems[0] = "Move:  Disabled";
-          double alignmentAlt1 = alignmentAltValues[1][0] - alignmentAltValues[0][0];
-          while(alignmentAlt1 < 0){
-            alignmentAlt1 += 360;
-          }
-          while(alignmentAlt1 > 360){
-            alignmentAlt1 -= 360;
-          }
-
-          double alignmentAlt2 = alignmentAltValues[2][0] - alignmentAltValues[1][0];
-          while(alignmentAlt2 < 0){
-            alignmentAlt2 += 360;
-          }
-          while(alignmentAlt2 > 360){
-            alignmentAlt2 -= 360;
-          }
-
-          double currentAlt1 = alignmentAltValues[1][1] - alignmentAltValues[0][1];
-          while(currentAlt1 < 0){
-            currentAlt1 += 360;
-          }
-          while(currentAlt1 > 360){
-            currentAlt1 -= 360;
-          }
-
-          double currentAlt2 = alignmentAltValues[2][1] - alignmentAltValues[1][1];
-          while(currentAlt2 < 0){
-            currentAlt2 += 360;
-          }
-          while(currentAlt2 > 360){
-            currentAlt2 -= 360;
-          }
-          
-          alignmentAltOffset = 1 + ((abs(alignmentAlt1/currentAlt1) - abs(alignmentAlt2/currentAlt2))/2);
-
-          double alignmentAz1 = alignmentAzValues[1][0] - alignmentAzValues[0][0];
-          while(alignmentAz1 < 0){
-            alignmentAz1 += 360;
-          }
-          while(alignmentAz1 > 360){
-            alignmentAz1 -= 360;
-          }
-
-          double alignmentAz2 = alignmentAzValues[2][0] - alignmentAzValues[1][0];
-          while(alignmentAz2 < 0){
-            alignmentAz2 += 360;
-          }
-          while(alignmentAz2 > 360){
-            alignmentAz2 -= 360;
-          }
-
-          double currentAz1 = alignmentAzValues[1][1] - alignmentAzValues[0][1];
-          while(currentAz1 < 0){
-            currentAz1 += 360;
-          }
-          while(currentAz1 > 360){
-            currentAz1 -= 360;
-          }
-
-          double currentAz2 = alignmentAzValues[2][1] - alignmentAzValues[1][1];
-          while(currentAz2 < 0){
-            currentAz2 += 360;
-          }
-          while(currentAz2 > 360){
-            currentAz2 -= 360;
-          }
-
-          alignmentAzOffset = 1 + ((abs(alignmentAz1/currentAz1) - abs(alignmentAz2/currentAz2))/2);
-          showAlignmentConfirm();
-        }else{
-          showAlignmentMenu();
-        }
-      }else{
-        currentAlt = myAstro.getAltitude();
-        currentAz = myAstro.getAzimuth();
-        synced = true;
-      }
+          break;        
+      } 
       
       aSerial.print(1);      
     }
@@ -1177,113 +1184,109 @@ void slewMode(){
   
   if(!slewComplete){
 
-      if(
-          abs(remainingAz) > stepperSpeed &&
-          abs(remainingAz) > minStep
-      ){
-          moveAz = true;
-      }
-
-      if(
-          abs(remainingAlt) > (stepperSpeed) &&
-          abs(remainingAlt) > minStep
-      ){
-        moveAlt = true;
-      }
-      
-      moveSpeed = MAX_MOTOR_SPEED;
-      moveSpeed *=  (stepperSpeed + 1);
-      moveSpeed /=  4;
-
-      if(moveAz){
-        setXSpeed(remainingAz > 0 ? (-1 * moveSpeed) : moveSpeed);
-      }else{
-        setXSpeed(0);
-      }
-
-      if(moveAlt){
-        setYSpeed(remainingAlt > 0 ? ((-1 * moveSpeed)/2) : (moveSpeed/2));
-      }else{
-        setYSpeed(0);
-      }
-
-      if(!moveAlt && !moveAz){
-        stepperSpeed--;
-      }
-
-      if(stepperSpeed < 0){
-        slewComplete = true;
-        stepperSpeed = 0;
-        setTrack();
-      }
-      
+    if(
+        abs(remainingAz) > stepperSpeed &&
+        abs(remainingAz) > minStep
+    ){
+        moveAz = true;
     }
 
-    if(millis() - slewScreenUpdate > slewScreenTimeOut){
-        
-        if(slewComplete){
-          display.clear();
-          display.printFixed(0, 0, "Slew Complete!", STYLE_NORMAL);
-          display.printFixed(0, 16, "Press the button to return to main menu.", STYLE_NORMAL);
-          slewScreenTimeOut = 60000;
-        }else{
-          
-          int intAlt = (int) totalAlt;
-          int decAlt = (100 * abs(totalAlt - intAlt));
-          int intAz = (int) totalAz;
-          int decAz = (100 * abs(totalAz - intAz));
-      
-          int intTargetAlt = (int) targetAlt;
-          int decTargetAlt = (100 * abs(targetAlt - intTargetAlt));
-          int intTargetAz = (int) targetAz;
-          int decTargetAz = (100 * abs(targetAz - intTargetAz));
-      
-          int intRemainingAlt = (int) remainingAlt;
-          int decRemainingAlt = (100 * abs(remainingAlt) - abs(intRemainingAlt));
-          int intRemainingAz = (int) remainingAz;
-          int decRemainingAz = (100 * abs(remainingAz) - abs(intRemainingAz));
-          
-          char charCurrentAlt[20];
-          snprintf(charCurrentAlt, 20, "%d.%d", intAlt, decAlt);
-          display.printFixed(72, 0, "       ", STYLE_NORMAL);
-          display.printFixed(72, 0, charCurrentAlt, STYLE_NORMAL);
-          
-          char charCurrentAz[20];
-          snprintf(charCurrentAz, 20, "%d.%d", intAz, decAz);
-          display.printFixed(72,  8, "       ", STYLE_NORMAL);
-          display.printFixed(72,  8, charCurrentAz, STYLE_NORMAL);
-      
-          char charTargetAlt[20];
-          snprintf(charTargetAlt, 20, "%d.%d", intTargetAlt, decTargetAlt);
-          display.printFixed(72,  16, "       ", STYLE_NORMAL);
-          display.printFixed(72,  16, charTargetAlt, STYLE_NORMAL);
-      
-          char charTargetAz[20];
-          snprintf(charTargetAz, 20, "%d.%d", intTargetAz, decTargetAz);
-          display.printFixed(72,  24, "       ", STYLE_NORMAL);
-          display.printFixed(72,  24, charTargetAz, STYLE_NORMAL);
+    if(
+        abs(remainingAlt) > (stepperSpeed) &&
+        abs(remainingAlt) > minStep
+    ){
+      moveAlt = true;
+    }
+    
+    moveSpeed = MAX_MOTOR_SPEED;
+    moveSpeed *=  (stepperSpeed + 1);
+    moveSpeed /=  4;
 
-          char charRemainingAlt[20];
-          snprintf(charRemainingAlt, 20, "%d.%d", intRemainingAlt, decRemainingAlt);
-          display.printFixed(72,  32, "       ", STYLE_NORMAL);
-          display.printFixed(72,  32, charRemainingAlt, STYLE_NORMAL);
-
-          char charRemainingAz[20];
-          snprintf(charRemainingAz, 20, "%d.%d", intRemainingAz, decRemainingAz);
-          display.printFixed(72,  40, "       ", STYLE_NORMAL);
-          display.printFixed(72,  40, charRemainingAz, STYLE_NORMAL);
-          
-        }
-        
-        slewScreenUpdate = millis();
+    if(moveAz){
+      setXSpeed(remainingAz > 0 ? (-1 * moveSpeed) : moveSpeed);
+    }else{
+      setXSpeed(0);
     }
 
+    if(moveAlt){
+      setYSpeed(remainingAlt > 0 ? ((-1 * moveSpeed)/2) : (moveSpeed/2));
+    }else{
+      setYSpeed(0);
+    }
+
+    if(!moveAlt && !moveAz){
+      stepperSpeed--;
+    }
+
+    if(stepperSpeed < 0){
+      slewComplete = true;
+      stepperSpeed = 0;
+      setTrack();
+    }
+    
+  }
+
+  if(millis() - slewScreenUpdate > slewScreenTimeOut){
+      
+    if(slewComplete){
+      display.clear();
+      display.printFixed(0, 0, "Slew Complete!", STYLE_NORMAL);
+      display.printFixed(0, 16, "Press the button to return to main menu.", STYLE_NORMAL);
+      slewScreenTimeOut = 60000;
+    }else{
+      
+      int intAlt = (int) totalAlt;
+      int decAlt = (100 * abs(totalAlt - intAlt));
+      int intAz = (int) totalAz;
+      int decAz = (100 * abs(totalAz - intAz));
   
+      int intTargetAlt = (int) targetAlt;
+      int decTargetAlt = (100 * abs(targetAlt - intTargetAlt));
+      int intTargetAz = (int) targetAz;
+      int decTargetAz = (100 * abs(targetAz - intTargetAz));
+  
+      int intRemainingAlt = (int) remainingAlt;
+      int decRemainingAlt = (100 * abs(remainingAlt) - abs(intRemainingAlt));
+      int intRemainingAz = (int) remainingAz;
+      int decRemainingAz = (100 * abs(remainingAz) - abs(intRemainingAz));
+      
+      char charCurrentAlt[20];
+      snprintf(charCurrentAlt, 20, "%d.%d", intAlt, decAlt);
+      display.printFixed(72, 0, "       ", STYLE_NORMAL);
+      display.printFixed(72, 0, charCurrentAlt, STYLE_NORMAL);
+      
+      char charCurrentAz[20];
+      snprintf(charCurrentAz, 20, "%d.%d", intAz, decAz);
+      display.printFixed(72,  8, "       ", STYLE_NORMAL);
+      display.printFixed(72,  8, charCurrentAz, STYLE_NORMAL);
+  
+      char charTargetAlt[20];
+      snprintf(charTargetAlt, 20, "%d.%d", intTargetAlt, decTargetAlt);
+      display.printFixed(72,  16, "       ", STYLE_NORMAL);
+      display.printFixed(72,  16, charTargetAlt, STYLE_NORMAL);
+  
+      char charTargetAz[20];
+      snprintf(charTargetAz, 20, "%d.%d", intTargetAz, decTargetAz);
+      display.printFixed(72,  24, "       ", STYLE_NORMAL);
+      display.printFixed(72,  24, charTargetAz, STYLE_NORMAL);
+
+      char charRemainingAlt[20];
+      snprintf(charRemainingAlt, 20, "%d.%d", intRemainingAlt, decRemainingAlt);
+      display.printFixed(72,  32, "       ", STYLE_NORMAL);
+      display.printFixed(72,  32, charRemainingAlt, STYLE_NORMAL);
+
+      char charRemainingAz[20];
+      snprintf(charRemainingAz, 20, "%d.%d", intRemainingAz, decRemainingAz);
+      display.printFixed(72,  40, "       ", STYLE_NORMAL);
+      display.printFixed(72,  40, charRemainingAz, STYLE_NORMAL);
+      
+    }
+    
+    slewScreenUpdate = millis();
+  }
 }
 
 void getGPS(){
-  
-  
   if(gps.location.isValid()){
     
     flat = gps.location.lat();
