@@ -7,29 +7,28 @@
 #include <TimeLib.h>
 #include "Preferences.h"
 #include <SiderealObjects.h>
+#include <List.hpp>
+#include <ESP32Encoder.h>
 
 /************************************************************************************************************************
 Start Configurable Items 
 *************************************************************************************************************************/
-#define MOUNT_NAME "Telescope8"                    //Name of the Mount - Bluetooth Name etc.
-#define FIRMWARE_VERSION "0.1"                     //Just for Informational Purposes
-#define FIRMWARE_DATE "MAY 09 2024"                //Just for Informational Purposes
+#define MOUNT_NAME "StarMax90"                    //Name of the Mount - Bluetooth Name etc.
+#define FIRMWARE_VERSION "0.2"                     //Just for Informational Purposes
+#define FIRMWARE_DATE "JUL 01 2024"                //Just for Informational Purposes
 #define FIRMWARE_TIME "12:00:00"
-#define SITE_1_NAME "Home"                         //These need to be in EEPROM 
-#define SITE_2_NAME "Site2Name"
-#define SITE_3_NAME "Site3Name"
-#define SITE_4_NAME "Site4Name"
 
+//this is expecting the Alt and Az gearing to be the same.
 const int GEAR_RATIO = 15;                       //where 1 is no gearing (ex. 300 Tooth gear / 20 tooth gear = 15), 15 Telescope, 1 Binoc
-const double SINGLE_STEP_DEGREE =  360.0 / 200.0;    // the motor has 200 regular steps for 360 degrees (360 divided by 200 = 1.8)
-const double MOTOR_GEAR_BOX = 15;                 //where 1 is no gearing (26 + (103/121)) planetary gearbox version
-const float MAX_MOTOR_SPEED = 1500;              //250 is probably good without GEAR_RATIO >1, 1500 Telescope, 250 Binoc 
+const double SINGLE_STEP_DEGREE =  360.0 / 400.0;    // the motor has 200 regular steps for 360 degrees (360 divided by 200 = 1.8)
+const double MOTOR_GEAR_BOX = 1;                 //where 1 is no gearing (26 + (103/121)) planetary gearbox version
+const float MAX_MOTOR_SPEED = 500;              //250 is probably good without GEAR_RATIO >1, 1500 Telescope, 250 Binoc 
 
 //Define Motor setup
-const int Y_DIRECTION_PIN = 13;                 //ALT Driver Dir
-const int Y_STEP_PIN = 12;                      //ALT Driver Step
-const int X_DIRECTION_PIN = 14;                 //AZ Driver Dir
-const int X_STEP_PIN = 27;                      //AZ Driver Step
+const int ALT_DIRECTION_PIN = 13;                 //ALT Driver Dir
+const int ALT_STEP_PIN = 12;                      //ALT Driver Step
+const int AZ_DIRECTION_PIN = 27;                 //AZ Driver Dir
+const int AZ_STEP_PIN = 14;                      //AZ Driver Step
 const int MOTOR_INTERFACE_TYPE = 1;             //AccelStepper Motor Type 1
 //#define MIN_PULSE_WIDTH 50                      //use to adjust stepper pulses, comment out for default
 
@@ -39,8 +38,21 @@ const int Y_INVERT = 1;                         //1 is normal, -1 inverted , bin
 const int X_JOYSTICK_PIN = 35;                  //Left/Right Pin on the remote
 const int X_INVERT = 1;                        //1 is normal, -1 inverted , binoc -1, telescope 1
 
-const int BUTTON_PIN = 32;                      //button on Remotes
+const int BUTTON_PIN = 4;                      //button on Remotes
 const int ANALOG_READ_RESOLUTION = 4095;        //ESP32 has this resolution, other chips may vary
+
+//Define Encoders
+const int AZ_ENCODER_1 = 26;
+const int AZ_ENCODER_2 = 25;
+const double AZ_ENCODER_GEAR = 15;                //300 / 20
+const double AZ_ENCODER_DEGREE_PER_STEP = 0.15;   //360 / (600 * 4)
+const int AZ_ENCODER_INVERT = -1;                 //change the direction of the Encoder when adding to currentAz
+const int ALT_ENCODER_1 = 33;
+const int ALT_ENCODER_2 = 32;
+const double ALT_ENCODER_GEAR = 15;               //300 / 20
+const double ALT_ENCODER_DEGREE_PER_STEP = 0.15;  //360 / (600 * 4)
+const int ALT_ENCODER_INVERT = -1;                //change the direction of the Encoder when adding to currentAlt
+#define ENCODERFILTER                             //If moving too fast, need to lower the debounce to 0. Comment out at slower speeds.
 
 //Comment Out HAS_FOCUSER for no Focuser
 #define HAS_FOCUSER
@@ -64,6 +76,7 @@ const int DATA_PIN = 5;                         //Pin connected to DS of 74HC595
 //#define DEBUG_Y_JOYSTICK 
 //#define DEBUG_GPS
 //#define DEBUG_COMMS
+//#define DEBUG_ENCODER
 /************************************************************************************************************************
 End Configurable Items
 *************************************************************************************************************************/
@@ -71,8 +84,6 @@ End Configurable Items
 /************************************************************************************************************************
 Global Variables - These should not need to change based on devices
 *************************************************************************************************************************/
-#define ALT 0               //Used for addSteps() with the alignment value
-#define AZ  1               //Used for addSteps() with the alignment value
 BluetoothSerial btComm;       //Bluetooth Setup
 SiderealPlanets myAstro;      //Used for calculations
 SiderealObjects myObjects;    //Used for GoTo Functions
@@ -91,11 +102,16 @@ bool longXPressActive = false;
 const double rotationDegrees = (SINGLE_STEP_DEGREE / MOTOR_GEAR_BOX); //degrees / single step per rev / gearbox
 
 //Motor Starts
-AccelStepper yStepper = AccelStepper(MOTOR_INTERFACE_TYPE,Y_STEP_PIN,Y_DIRECTION_PIN);
-AccelStepper xStepper = AccelStepper(MOTOR_INTERFACE_TYPE,X_STEP_PIN,X_DIRECTION_PIN);
+AccelStepper yStepper = AccelStepper(MOTOR_INTERFACE_TYPE,ALT_STEP_PIN,ALT_DIRECTION_PIN);
+AccelStepper xStepper = AccelStepper(MOTOR_INTERFACE_TYPE,AZ_STEP_PIN,AZ_DIRECTION_PIN);
 #ifdef HAS_FOCUSER
 AccelStepper focuser = AccelStepper(FOCUS_INTERFACE_TYPE,FOCUS_STEP_PIN,FOCUS_DIRECTION_PIN);
 #endif
+
+
+ESP32Encoder altEncoder;
+ESP32Encoder azEncoder;
+
 
 float xSpeed = 0;
 float ySpeed = 0;
@@ -293,17 +309,25 @@ bool isTracking = false;
 long slewScreenTimeOut = 2000;
 long slewScreenUpdate = 0;
 
+const char *sites[4] = {"","","",""};
+
 DisplaySSD1306_128x64_I2C display(-1); // or (-1,{busId, addr, scl, sda, frequency}). This line is suitable for most platforms by default
 
 void setup() {
   preferences.begin("scope",false);   //start up preferences
   
   if(preferences.isKey("altOffset")){
-    moveOffsets[ALT] = preferences.getDouble("altOffset");
+    moveOffsets[0] = preferences.getDouble("altOffset");
   }
 
   if(preferences.isKey("azOffset")){
-    moveOffsets[AZ] = preferences.getDouble("azOffset");
+    moveOffsets[1] = preferences.getDouble("azOffset");
+  }
+
+  for(int i = 0; i < 4; i++){
+    if(preferences.isKey("site" + i)){
+      sites[i] = preferences.getString("site" + i).c_str();
+    }
   }
 
   #ifdef HAS_FOCUSER
@@ -324,6 +348,24 @@ void setup() {
   #ifndef DEBUG
     Serial.begin(9600);     //USB
   #endif
+
+
+  //ESP32Encoder::useInternalWeakPullResistors = puType::down;
+	// Enable the weak pull up resistors
+	ESP32Encoder::useInternalWeakPullResistors = puType::up;
+
+  altEncoder.attachFullQuad(ALT_ENCODER_1, ALT_ENCODER_2);
+  azEncoder.attachFullQuad(AZ_ENCODER_1,AZ_ENCODER_2);
+
+  #ifdef ENCODERFILTER
+      altEncoder.setFilter(0);
+      azEncoder.setFilter(0);
+  #endif
+
+  altEncoder.clearCount();
+  azEncoder.clearCount();
+
+
   btComm.begin(MOUNT_NAME);   //Bluetooth
   Serial2.begin(9600);  //start GPS
   
@@ -577,6 +619,7 @@ void communication(Stream &aSerial)
     String strInput = String(input);
     #ifdef DEBUG_COMMS
       display.printFixed(0,  40, input, STYLE_NORMAL);
+      Serial.println(input);
     #endif
 
     switch (input[1]){
@@ -669,38 +712,30 @@ void commsSyncControl(char input2, Stream &aSerial){
             moving = false;
             alignmentMenuItems[0] = "Move:  Disabled";
             double alignmentAlt1 = alignmentAltValues[1][0] - alignmentAltValues[0][0];
-            alignmentAlt1 = lessThan0Plus(alignmentAlt1);
-            alignmentAlt1 = over360minus(alignmentAlt1);
+            alignmentAlt1 = over360Under0(alignmentAlt1);
 
             double alignmentAlt2 = alignmentAltValues[2][0] - alignmentAltValues[1][0];
-            alignmentAlt2 = lessThan0Plus(alignmentAlt2);
-            alignmentAlt2 = over360minus(alignmentAlt2);
+            alignmentAlt2 = over360Under0(alignmentAlt2);
             
             double currentAlt1 = alignmentAltValues[1][1] - alignmentAltValues[0][1];
-            currentAlt1 = lessThan0Plus(currentAlt1);
-            currentAlt1 = over360minus(currentAlt1);
+            currentAlt1 = over360Under0(currentAlt1);
 
             double currentAlt2 = alignmentAltValues[2][1] - alignmentAltValues[1][1];
-            currentAlt2 = lessThan0Plus(currentAlt2);
-            currentAlt2 = over360minus(currentAlt2);
+            currentAlt2 = over360Under0(currentAlt2);
             
             alignmentAltOffset = 1 + ((abs(alignmentAlt1/currentAlt1) - abs(alignmentAlt2/currentAlt2))/2);
 
             double alignmentAz1 = alignmentAzValues[1][0] - alignmentAzValues[0][0];
-            alignmentAz1 = lessThan0Plus(alignmentAz1);
-            alignmentAz1 = over360minus(alignmentAz1);
+            alignmentAz1 = over360Under0(alignmentAz1);
 
             double alignmentAz2 = alignmentAzValues[2][0] - alignmentAzValues[1][0];
-            alignmentAz2 = lessThan0Plus(alignmentAz2);
-            alignmentAz2 = over360minus(alignmentAz2);
+            alignmentAz2 = over360Under0(alignmentAz2);
 
             double currentAz1 = alignmentAzValues[1][1] - alignmentAzValues[0][1];
-            currentAz1 = lessThan0Plus(currentAz1);
-            currentAz1 = over360minus(currentAz1);
+            currentAz1 = over360Under0(currentAz1);
 
             double currentAz2 = alignmentAzValues[2][1] - alignmentAzValues[1][1];
-            currentAz2 = lessThan0Plus(currentAz2);
-            currentAz2 = over360minus(currentAz2);
+            currentAz2 = over360Under0(currentAz2);
 
             alignmentAzOffset = 1 + ((abs(alignmentAz1/currentAz1) - abs(alignmentAz2/currentAz2))/2);
             showAlignmentConfirm();
@@ -771,7 +806,25 @@ void commsFocuserControl(char input2){
 void commsGetTelescopeInfo(Stream &aSerial){
     
     switch(input[2]){
+      case 'A': /*:GA# Get Telescope Altitude
+                    Returns: sDD*MM# or sDD*MM’SS#
+                    The current scope altitude. The returned format depending on the current precision setting*/
+      {
+        char decCase;
       
+        if(currentAlt < 0){
+          decCase = 45;
+        }else{
+          decCase = 43;
+        }
+          
+        char txAlt[7];
+        snprintf(txAlt, 7, "%c%02d%c%02d", decCase, getDecDeg(currentAlt), 223, getDecMM(currentAlt));
+        aSerial.print(txAlt);
+        aSerial.print("#");
+        break;
+      }
+
       case 'C': //:GC# Get current date. Returns: MM/DD/YY# The current local calendar date for the telescope.
         //Get Telescope Local Date
         {
@@ -793,10 +846,9 @@ void commsGetTelescopeInfo(Stream &aSerial){
 
       case 'D': //:GD# Get Telescope Declination. Returns: sDD*MM# or sDD*MM’SS# Depending upon the current precision setting for the telescope.
         {
-          float totalAz  = addSteps(-1*xStepper.currentPosition(), currentAz, AZ);
-          float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, ALT);
-
-          myAstro.setAltAz(totalAlt, totalAz);
+          setCurrentPositions();
+          
+          myAstro.setAltAz(currentAlt, currentAz);
           myAstro.doAltAz2RAdec();
           
           float aDec = myAstro.getDeclinationDec();
@@ -847,30 +899,29 @@ void commsGetTelescopeInfo(Stream &aSerial){
           break;
         }
       case 'M': //:GM# Get Site 1 Name Returns: <string># A ‘#’ terminated string with the name of the requested site.
-        aSerial.print(SITE_1_NAME);
+        aSerial.print(sites[0]);
         aSerial.print("#");
         break;
 
       case 'N': //:GN# Get Site 2 Name Returns: <string>#  A ‘#’ terminated string with the name of the requested site.
-        aSerial.print(SITE_2_NAME);
+        aSerial.print(sites[1]);
         aSerial.print("#");
         break;
 
       case 'O': //:GO# Get Site 3 Name Returns: <string># A ‘#’ terminated string with the name of the requested site.
-        aSerial.print(SITE_3_NAME);
+        aSerial.print(sites[2]);
         aSerial.print("#");
         break;
       case 'P': //:GP# Get Site 4 Name Returns: <string># A ‘#’ terminated string with the name of the requested site.
-        aSerial.print(SITE_4_NAME);
+        aSerial.print(sites[3]);
         aSerial.print("#");
         break;
 
       case 'R': //:GR# Get Telescope RA Returns: HH:MM.T# or HH:MM:SS# Depending which precision is set for the telescope
         {
-          float totalAz = addSteps(-1*xStepper.currentPosition(), currentAz, AZ);
-          float totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, ALT);
+          setCurrentPositions();
           
-          myAstro.setAltAz(totalAlt, totalAz);
+          myAstro.setAltAz(currentAlt, currentAz);
           myAstro.doAltAz2RAdec();
 
           float aRa = myAstro.getRAdec();
@@ -879,6 +930,24 @@ void commsGetTelescopeInfo(Stream &aSerial){
           aSerial.print(txRA);
           break;
         }
+      case 's': /*Get Smaller Size Limit
+                    Returns: NNN'#
+                    The size of the largest object returned by the FIND command expressed in arcminutes.
+                */
+      {
+        aSerial.print("190'#"); //M31 size
+        break;
+      }
+      case 'T': /*:GT# Get tracking rate
+                      Returns: TT.T#
+                      Current Track Frequency expressed in hertz assuming a synchonous motor design where a 60.0 Hz motor clock
+                      would produce 1 revolution of the telescope in 24 hours.*/
+      {
+          double trackingRate = 2.5* 3600 * (((realXSpeed * rotationDegrees) / GEAR_RATIO) /stepperDivider);
+          aSerial.print(trackingRate, 1);
+          aSerial.print('#');
+          break;
+      }
       case 't': //:Gt# Get Current Site Latitdue Returns: sDD*MM# The latitude of the current site. Positive inplies North latitude.
         {
           float lat = gps.location.lat();
@@ -912,22 +981,35 @@ void commsGetTelescopeInfo(Stream &aSerial){
         }
         break;
       case 'W': //Get Track State
-        aSerial.print("A");
+        {
+          aSerial.print("A");
       
-        if(isTracking){
-          aSerial.print("T");
-        }else{
-          aSerial.print("N");
-        }
+          if(isTracking){
+            aSerial.print("T");
+          }else{
+            aSerial.print("N");
+          }
 
-        if(synced){
-          aSerial.print("1");
-        }else{
-          aSerial.print("0");
-        }
+          if(synced){
+            aSerial.print("1");
+          }else{
+            aSerial.print("0");
+          }
 
+          aSerial.print("#");
+        break;
+        }
+      case 'Z': /* :GZ# Get telescope azimuth
+                    Returns: DDD*MM#T or DDD*MM’SS#
+                    The current telescope Azimuth depending on the selected precision. 
+                */
+      {
+        char txAz[7];
+        snprintf(txAz, 7, "%03d%c%02d", getDecDeg(currentAz), 223, getDecMM(currentAz));
+        aSerial.print(txAz);
         aSerial.print("#");
-      break;
+        break;
+      }
     }
 }
 
@@ -990,6 +1072,7 @@ void commsSlewRate(){
 
 //S – Telescope Set Commands 
 void commsSetCommands(Stream &aSerial,String strInput){
+  int siteID = 0;
   switch(input[2]){ /*:SCMM/DD/YY#
                       Change Handbox Date to MM/DD/YY
                       Returns: <D><string>
@@ -1044,11 +1127,15 @@ void commsSetCommands(Stream &aSerial,String strInput){
                   Returns:
                   0 – Invalid
                   1 - Valid */
-      int inLonD = strInput.substring(3,6).toInt();
+      
+       int inLonD = strInput.substring(3,6).toInt();
+       
        float inLonM = (float)strInput.substring(7,9).toInt();
 
        inLonM = inLonM/60;
-       flon = inLonD + inLonM;
+       flon = -1 * (inLonD + inLonM);
+       
+
        if(flon != 0 && flat != 0){
           myAstro.setLatLong((double)flat, (double)flon);
        }
@@ -1067,6 +1154,23 @@ void commsSetCommands(Stream &aSerial,String strInput){
       aSerial.print(1);
       break;
     }
+    case 'P': //:SP<string># Site 4
+      siteID++;
+    case 'O': //:SO<string># Site 3
+      siteID++;
+    case 'N': //:SN<string># Site 2
+      siteID++;
+    case 'M': /*:SM<string>#
+                Set site 1’s name to be <string>. LX200s only accept 3 character strings. Other scopes accept up to 15 characters.
+                  Returns:
+                  0 – Invalid
+                  1- Valid */
+      
+      sites[siteID] = strInput.substring(3,strInput.indexOf("#")).c_str();
+      preferences.putString("site" + siteID, sites[siteID]);
+
+      aSerial.print(1);
+      break;
     case 'r':{ /*:SrHH:MM.T#
                   :SrHH:MM:SS#
                   Set target object RA to HH:MM.T or HH:MM:SS depending on the current precision setting.
@@ -1079,7 +1183,25 @@ void commsSetCommands(Stream &aSerial,String strInput){
             
       aSerial.print(1);
       break;
-    } 
+    }
+    case 'S':/*:SSHH:MM:SS#
+          Sets the local sideral time to HH:MM:SS
+          Returns:
+          0 – Invalid
+          1 - Valid */
+    {
+      //this gets calculated so just send a valid
+      aSerial.print(1);
+      break;
+    }
+    case 's':{ /*:SsNNN#
+                  Set the size of the largest object the FIND/BROWSE command will return to NNNN arc minutes
+                  Returns:
+                  0 – Invalid
+                  1 - Valid*/
+              aSerial.print(1);
+              break;
+    }
     case 't': { /*:StsDD*MM#
                   Sets the current site latitdue to sDD*MM#
                   Returns:
@@ -1103,6 +1225,17 @@ void commsSetCommands(Stream &aSerial,String strInput){
       aSerial.print(1);
       break;
     }
+    case 'w': /*:SwN#
+                Set maximum slew rate to N degrees per second. N is the range (2..8)
+                Returns:
+                0 – Invalid
+                1 - Valid */
+    {
+      //just return 1 for now
+      aSerial.print(1);
+      break;
+    }
+
   }
 }
 
@@ -1135,11 +1268,10 @@ void slewMode(){
   targetAlt = myAstro.getAltitude();
   targetAz = myAstro.getAzimuth();
   
-  double totalAz  = addSteps(-1*xStepper.currentPosition(), currentAz, AZ);
-  double totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, ALT);
+  setCurrentPositions();
   
-  double remainingAlt = targetAlt - totalAlt;
-  double remainingAz = azDifference(totalAz, targetAz);
+  double remainingAlt = targetAlt - currentAlt;
+  double remainingAz = azDifference(currentAz, targetAz);
   
   double minStep = (rotationDegrees/GEAR_RATIO)/32;
   bool moveAz = false;
@@ -1199,10 +1331,10 @@ void slewMode(){
       slewScreenTimeOut = 60000;
     }else{
       
-      int intAlt = (int) totalAlt;
-      int decAlt = (100 * abs(totalAlt - intAlt));
-      int intAz = (int) totalAz;
-      int decAz = (100 * abs(totalAz - intAz));
+      int intAlt = (int) currentAlt;
+      int decAlt = (100 * abs(currentAlt - intAlt));
+      int intAz = (int) currentAz;
+      int decAz = (100 * abs(currentAz - intAz));
   
       int intTargetAlt = (int) targetAlt;
       int decTargetAlt = (100 * abs(targetAlt - intTargetAlt));
@@ -1458,10 +1590,10 @@ void showOffsetsMenu(){
   screenMode = 5;
   display.clear();
   char output[16];
-  snprintf(output, 16, "Alt: %f", moveOffsets[ALT]);
+  snprintf(output, 16, "Alt: %f", moveOffsets[0]); //Alt is 0
   offSetsMenuItems[1] = output;
   char output2[16];
-  snprintf(output2, 16, "Az:  %f", moveOffsets[AZ]);
+  snprintf(output2, 16, "Az:  %f", moveOffsets[1]); //Az is 1
   offSetsMenuItems[2] = output2;
   offsetsMenu.show(display);
 }
@@ -1669,8 +1801,8 @@ void movementButtonControl(){
                 break;
               case 3:
                 if(alignmentConfirm.isYes()){
-                  setOffsets(ALT, alignmentAltOffset);
-                  setOffsets(AZ,  alignmentAzOffset);
+                  setOffsets(0, alignmentAltOffset);
+                  setOffsets(1,  alignmentAzOffset);
                 }else{
                   moveOffsets[0] = tempMoveOffsets[0];
                   moveOffsets[1] = tempMoveOffsets[1];
@@ -1688,8 +1820,8 @@ void movementButtonControl(){
                 showSettingsMenu();
                 break;
               case 3:
-                setOffsets(ALT, 1.0);
-                setOffsets(AZ, 1.0);
+                setOffsets(0, 1.0);
+                setOffsets(1, 1.0);
                 
                 showOffsetsMenu();
                 break;
@@ -1845,10 +1977,14 @@ void menuControl(){
       if(y == -1){
         switch(screenMode){
           //place holders for long presses
+          default: //not needed yet
+            break;
         }
       }else if(y == 1){
         switch(screenMode){
           //place holders for long presses
+          default: //not needed at them moment
+            break;
         }
       }
       
@@ -2105,23 +2241,36 @@ void readJoystickAndMove(){
   
 }
 
+/*
 double addSteps(int steps, double inDegrees, int altAz){
   double fSteps = double(steps);
-  double degree = (moveOffsets[altAz]) * ((fSteps * rotationDegrees)/GEAR_RATIO)/stepperDivider;
+  double degree = 0;
+  if(altAz == ALT){
+    
+  }else if(altAz == AZ){
+    degree = (moveOffsets[altAz]) * ((fSteps * rotationDegrees)/GEAR_RATIO)/stepperDivider;
+  }
   
   double outDegrees = inDegrees + degree;
-  outDegrees = lessThan0Plus(outDegrees);
-  outDegrees = over360minus(outDegrees);
+  outDegrees = over360Under0(outDegrees);
   
   return outDegrees;
 }
+*/
 
 void setCurrentPositions(){
-  currentAz = addSteps(-1*xStepper.currentPosition(), currentAz, AZ);
-  xStepper.setCurrentPosition(0);
+  #ifdef DEBUG_ENCODER
+    Serial.println((AZ_ENCODER_INVERT * moveOffsets[1] * ((int32_t)azEncoder.getCount() * (AZ_ENCODER_DEGREE_PER_STEP / AZ_ENCODER_GEAR))));
+    Serial.println((ALT_ENCODER_INVERT * moveOffsets[0] * ((int32_t)altEncoder.getCount() * (ALT_ENCODER_DEGREE_PER_STEP / ALT_ENCODER_GEAR))));
+  #endif
+
+  currentAz = over360Under0(currentAz + (AZ_ENCODER_INVERT * moveOffsets[1] * ((int32_t)azEncoder.getCount() * (AZ_ENCODER_DEGREE_PER_STEP / AZ_ENCODER_GEAR)))); //AzOffsets is from 1 index
+  azEncoder.clearCount();
+
+  currentAlt = over360Under0(currentAlt + (ALT_ENCODER_INVERT * moveOffsets[0] * ((int32_t)altEncoder.getCount() * (ALT_ENCODER_DEGREE_PER_STEP / ALT_ENCODER_GEAR)))); //AltOffsets is from 0 index
+  altEncoder.clearCount();
+
   
-  currentAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, ALT);
-  yStepper.setCurrentPosition(0);
 }
 
 void setStepperSpeed(){
@@ -2159,7 +2308,7 @@ void setStepperSpeed(){
         mainMenuItems[speedMenuIndex] = "Speed: Slow";
         alignmentMenuItems[1] = "Speed: Slow";
         break;
-      // 1/8 - Med (HIGH, HIGH, LOW)
+      // 1/8 - Med - HIGH, HIGH, LOW
       case 2:      
         digitalWrite(LATCH_PIN, LOW);
         shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, 27);
@@ -2168,7 +2317,7 @@ void setStepperSpeed(){
         mainMenuItems[speedMenuIndex] = "Speed: Medium";
         alignmentMenuItems[1] = "Speed: Medium";
         break;
-      // 1/4 - Fast (Low, High, Low)
+      // 1/4 - Fast - Low, High, Low
       case 3:
         digitalWrite(LATCH_PIN, LOW);
         shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, 18);
@@ -2255,10 +2404,9 @@ void doTrack(){
 
   if(millis() - lastTrack > 1000){
 
-    double totalAz = addSteps(-1*xStepper.currentPosition(), currentAz, AZ);
-    double totalAlt = addSteps(-1*yStepper.currentPosition(), currentAlt, ALT);
+    setCurrentPositions();
     
-    myAstro.setAltAz(totalAlt, totalAz);
+    myAstro.setAltAz(currentAlt, currentAz);
     myAstro.doAltAz2RAdec();
 
     double aDec = myAstro.getDeclinationDec();
@@ -2367,19 +2515,18 @@ void setOffsets(int altAz, double value){
   }  
 }
 
-//Adds +360 until the value is over 0
-double lessThan0Plus(double value){
+
+double over360Under0(double value){
+  //Adds +360 until the value is over 0
   while(value < 0){
     value += 360;
   }
-  return value;
-}
-
-//subtract 360 until value is over 360
-double over360minus(double value){
+  
+  //subtract 360 until value is over 360
   while(value > 360){
     value -= 360;
   }
+
   return value;
 }
 
@@ -2388,9 +2535,9 @@ double azDifference(double az1, double az2){
   if(az1 > 270 && az2 < 90){
     difference = (360 + az2 - az1);
   }else if(az1 < 90 && az2 > 270){
-    difference = (az1 - 360 - az2);
+    difference = (az2 - 360 - az1);
   }else{
-    difference = az1 - az2;
+    difference = az2 - az1;
   }
   return difference;
 }
