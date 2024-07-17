@@ -215,8 +215,10 @@ LcdGfxMenu gotoMenu(gotoMenuItems, sizeof(gotoMenuItems)/sizeof(char *));
 
 //alignment Variables
 int alignmentScreen = 0;
+
+//the following is to hold the incoming sync Alt and the current alt so that they can be compared.
 double alignmentAltValues[][2] = {
-  {0.0,0.0},
+  {0.0,0.0}, //sync Alt, current alt
   {0.0,0.0},
   {0.0,0.0}
 };
@@ -712,32 +714,32 @@ void commsSyncControl(char input2, Stream &aSerial){
             moving = false;
             alignmentMenuItems[0] = "Move:  Disabled";
             double alignmentAlt1 = alignmentAltValues[1][0] - alignmentAltValues[0][0];
-            alignmentAlt1 = over360Under0(alignmentAlt1);
+            //alignmentAlt1 = over360Under0(alignmentAlt1);
 
             double alignmentAlt2 = alignmentAltValues[2][0] - alignmentAltValues[1][0];
-            alignmentAlt2 = over360Under0(alignmentAlt2);
+            //alignmentAlt2 = over360Under0(alignmentAlt2);
             
             double currentAlt1 = alignmentAltValues[1][1] - alignmentAltValues[0][1];
-            currentAlt1 = over360Under0(currentAlt1);
+            //currentAlt1 = over360Under0(currentAlt1);
 
             double currentAlt2 = alignmentAltValues[2][1] - alignmentAltValues[1][1];
-            currentAlt2 = over360Under0(currentAlt2);
+            //currentAlt2 = over360Under0(currentAlt2);
             
-            alignmentAltOffset = 1 + ((abs(alignmentAlt1/currentAlt1) - abs(alignmentAlt2/currentAlt2))/2);
+            alignmentAltOffset = (abs(alignmentAlt1/currentAlt1) + abs(alignmentAlt2/currentAlt2))/2;
 
-            double alignmentAz1 = alignmentAzValues[1][0] - alignmentAzValues[0][0];
-            alignmentAz1 = over360Under0(alignmentAz1);
+            double alignmentAz1 = azDifference(alignmentAzValues[1][0], alignmentAzValues[0][0]);
+            //alignmentAz1 = over360Under0(alignmentAz1);
 
-            double alignmentAz2 = alignmentAzValues[2][0] - alignmentAzValues[1][0];
-            alignmentAz2 = over360Under0(alignmentAz2);
+            double alignmentAz2 = azDifference(alignmentAzValues[2][0], alignmentAzValues[1][0]);
+            //alignmentAz2 = over360Under0(alignmentAz2);
 
-            double currentAz1 = alignmentAzValues[1][1] - alignmentAzValues[0][1];
-            currentAz1 = over360Under0(currentAz1);
+            double currentAz1 = azDifference(alignmentAzValues[1][1], alignmentAzValues[0][1]);
+            //currentAz1 = over360Under0(currentAz1);
 
-            double currentAz2 = alignmentAzValues[2][1] - alignmentAzValues[1][1];
-            currentAz2 = over360Under0(currentAz2);
+            double currentAz2 = azDifference(alignmentAzValues[2][1], alignmentAzValues[1][1]);
+            //currentAz2 = over360Under0(currentAz2);
 
-            alignmentAzOffset = 1 + ((abs(alignmentAz1/currentAz1) - abs(alignmentAz2/currentAz2))/2);
+            alignmentAzOffset = (abs(alignmentAz1/currentAz1) + abs(alignmentAz2/currentAz2))/2;
             showAlignmentConfirm();
           }else{
             showAlignmentMenu();
@@ -2241,23 +2243,6 @@ void readJoystickAndMove(){
   
 }
 
-/*
-double addSteps(int steps, double inDegrees, int altAz){
-  double fSteps = double(steps);
-  double degree = 0;
-  if(altAz == ALT){
-    
-  }else if(altAz == AZ){
-    degree = (moveOffsets[altAz]) * ((fSteps * rotationDegrees)/GEAR_RATIO)/stepperDivider;
-  }
-  
-  double outDegrees = inDegrees + degree;
-  outDegrees = over360Under0(outDegrees);
-  
-  return outDegrees;
-}
-*/
-
 void setCurrentPositions(){
   #ifdef DEBUG_ENCODER
     Serial.println((AZ_ENCODER_INVERT * moveOffsets[1] * ((int32_t)azEncoder.getCount() * (AZ_ENCODER_DEGREE_PER_STEP / AZ_ENCODER_GEAR))));
@@ -2269,8 +2254,6 @@ void setCurrentPositions(){
 
   currentAlt = over360Under0(currentAlt + (ALT_ENCODER_INVERT * moveOffsets[0] * ((int32_t)altEncoder.getCount() * (ALT_ENCODER_DEGREE_PER_STEP / ALT_ENCODER_GEAR)))); //AltOffsets is from 0 index
   altEncoder.clearCount();
-
-  
 }
 
 void setStepperSpeed(){
@@ -2290,7 +2273,7 @@ void setStepperSpeed(){
     #endif
 
     switch(stepperSpeed){
-      // 1/32 - Fine
+      // 1/32 - Fine - HIGH, HIGH, HIGH
       case 0:
         digitalWrite(LATCH_PIN, LOW);
         shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, 63);
