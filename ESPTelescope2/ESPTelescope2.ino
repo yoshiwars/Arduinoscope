@@ -7,7 +7,7 @@
 #include <TimeLib.h>
 #include "Preferences.h"
 #include <SiderealObjects.h>
-#include <List.hpp>
+//#include <List.hpp>
 #include <ESP32Encoder.h>
 
 /************************************************************************************************************************
@@ -20,9 +20,9 @@ Start Configurable Items
 
 //this is expecting the Alt and Az gearing to be the same.
 const int GEAR_RATIO = 15;                       //where 1 is no gearing (ex. 300 Tooth gear / 20 tooth gear = 15), 15 Telescope, 1 Binoc
-const double SINGLE_STEP_DEGREE =  360.0 / 400.0;    // the motor has 200 regular steps for 360 degrees (360 divided by 200 = 1.8)
-const double MOTOR_GEAR_BOX = 1;                 //where 1 is no gearing (26 + (103/121)) planetary gearbox version
-const float MAX_MOTOR_SPEED = 500;              //250 is probably good without GEAR_RATIO >1, 1500 Telescope, 250 Binoc 
+const double SINGLE_STEP_DEGREE =  360.0 / 200.0;    // the motor has 200 regular steps for 360 degrees (360 divided by 200 = 1.8)
+const double MOTOR_GEAR_BOX = 26 + (103.0/121.0);                 //where 1 is no gearing (26 + (103/121)) planetary gearbox version
+const float MAX_MOTOR_SPEED = 4000;              //250 is probably good without GEAR_RATIO >1, 1500 Telescope, 250 Binoc 
 
 //Define Motor setup
 const int ALT_DIRECTION_PIN = 13;                 //ALT Driver Dir
@@ -1275,7 +1275,12 @@ void slewMode(){
   double remainingAlt = targetAlt - currentAlt;
   double remainingAz = azDifference(currentAz, targetAz);
   
-  double minStep = (rotationDegrees/GEAR_RATIO)/32;
+  double minStep = (double) (AZ_ENCODER_DEGREE_PER_STEP/AZ_ENCODER_GEAR);
+  if(minStep < (double) (ALT_ENCODER_DEGREE_PER_STEP/ALT_ENCODER_GEAR)){
+    minStep = (double) (ALT_ENCODER_DEGREE_PER_STEP/ALT_ENCODER_GEAR);
+  }
+  
+  //(rotationDegrees/GEAR_RATIO)/32;
   bool moveAz = false;
   bool moveAlt = false;
   float moveSpeed = 0;
