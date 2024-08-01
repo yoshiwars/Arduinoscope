@@ -70,12 +70,12 @@ const int CLOCK_PIN = 19;                       //Pin connected to SH_CP of 74HC
 const int DATA_PIN = 5;                         //Pin connected to DS of 74HC595
 
 //uncomment to get debugging
-//#define DEBUG
+#define DEBUG
 //#define DEBUG_STEPS
 //#define DEBUG_X_JOYSTICK
 //#define DEBUG_Y_JOYSTICK 
 //#define DEBUG_GPS
-//#define DEBUG_COMMS
+#define DEBUG_COMMS
 //#define DEBUG_ENCODER
 /************************************************************************************************************************
 End Configurable Items
