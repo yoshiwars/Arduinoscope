@@ -33,22 +33,22 @@ const int MOTOR_INTERFACE_TYPE = 1;             //AccelStepper Motor Type 1
 //#define MIN_PULSE_WIDTH 50                      //use to adjust stepper pulses, comment out for default
 
 //Define Remote setup
-const int Y_JOYSTICK_PIN = 34;                  //Up/Down Pin on the Remote
+const int Y_JOYSTICK_PIN = 35;                  //Up/Down Pin on the Remote
 const int Y_INVERT = 1;                         //1 is normal, -1 inverted , binoc -1, telescope 1
-const int X_JOYSTICK_PIN = 35;                  //Left/Right Pin on the remote
+const int X_JOYSTICK_PIN = 34;                  //Left/Right Pin on the remote
 const int X_INVERT = 1;                        //1 is normal, -1 inverted , binoc -1, telescope 1
 
-const int BUTTON_PIN = 4;                      //button on Remotes
+const int BUTTON_PIN = 39;                      //button on Remotes
 const int ANALOG_READ_RESOLUTION = 4095;        //ESP32 has this resolution, other chips may vary
 
 //Define Encoders
-const int AZ_ENCODER_1 = 26;
-const int AZ_ENCODER_2 = 25;
+const int AZ_ENCODER_1 = 25;
+const int AZ_ENCODER_2 = 26;
 const double AZ_ENCODER_GEAR = 15;                //300 / 20
 const double AZ_ENCODER_DEGREE_PER_STEP = 0.15;   //360 / (600 * 4)
 const int AZ_ENCODER_INVERT = -1;                 //change the direction of the Encoder when adding to currentAz
-const int ALT_ENCODER_1 = 33;
-const int ALT_ENCODER_2 = 32;
+const int ALT_ENCODER_1 = 32;
+const int ALT_ENCODER_2 = 33;
 const double ALT_ENCODER_GEAR = 15;               //300 / 20
 const double ALT_ENCODER_DEGREE_PER_STEP = 0.15;  //360 / (600 * 4)
 const int ALT_ENCODER_INVERT = -1;                //change the direction of the Encoder when adding to currentAlt
@@ -58,16 +58,16 @@ const int ALT_ENCODER_INVERT = -1;                //change the direction of the 
 #define HAS_FOCUSER
 
 #ifdef HAS_FOCUSER
-  const int FOCUS_DIRECTION_PIN = 15;
-  const int FOCUS_STEP_PIN = 2;
+  const int FOCUS_DIRECTION_PIN = 4;            //Focus Driver Dir
+  const int FOCUS_STEP_PIN = 5;                 //Focus Driver Step
   const int MAX_FOCUS_SPEED = 1024;
   const int FOCUS_INTERFACE_TYPE = 1;           //1 is with driver DRV8825
 #endif
 
 //Shift Register for motor speeds
-const int LATCH_PIN = 18;                       //Pin connected to ST_CP of 74HC595
-const int CLOCK_PIN = 19;                       //Pin connected to SH_CP of 74HC595
-const int DATA_PIN = 5;                         //Pin connected to DS of 74HC595
+const int LATCH_PIN = 19;                       //Pin connected to ST_CP of 74HC595
+const int CLOCK_PIN = 18;                       //Pin connected to SH_CP of 74HC595
+const int DATA_PIN = 23;                         //Pin connected to DS of 74HC595
 
 //uncomment to get debugging
 #define DEBUG
