@@ -14,15 +14,15 @@
 Start Configurable Items 
 *************************************************************************************************************************/
 #define MOUNT_NAME "StarMax90"                    //Name of the Mount - Bluetooth Name etc.
-#define FIRMWARE_VERSION "0.2"                     //Just for Informational Purposes
-#define FIRMWARE_DATE "JUL 01 2024"                //Just for Informational Purposes
+#define FIRMWARE_VERSION "0.3"                     //Just for Informational Purposes
+#define FIRMWARE_DATE "SEP 26 2024"                //Just for Informational Purposes
 #define FIRMWARE_TIME "12:00:00"
 
 //this is expecting the Alt and Az gearing to be the same.
 const int GEAR_RATIO = 15;                       //where 1 is no gearing (ex. 300 Tooth gear / 20 tooth gear = 15), 15 Telescope, 1 Binoc
 const double SINGLE_STEP_DEGREE =  360.0 / 200.0;    // the motor has 200 regular steps for 360 degrees (360 divided by 200 = 1.8)
 const double MOTOR_GEAR_BOX = 26 + (103.0/121.0);                 //where 1 is no gearing (26 + (103/121)) planetary gearbox version
-const float MAX_MOTOR_SPEED = 4000;              //250 is probably good without GEAR_RATIO >1, 1500 Telescope, 250 Binoc 
+const float MAX_MOTOR_SPEED = 3000;              //250 is probably good without GEAR_RATIO >1, 1500 Telescope, 250 Binoc 
 
 //Define Motor setup
 const int ALT_DIRECTION_PIN = 13;                 //ALT Driver Dir
@@ -70,12 +70,12 @@ const int CLOCK_PIN = 18;                       //Pin connected to SH_CP of 74HC
 const int DATA_PIN = 23;                         //Pin connected to DS of 74HC595
 
 //uncomment to get debugging
-#define DEBUG
+//#define DEBUG
 //#define DEBUG_STEPS
 //#define DEBUG_X_JOYSTICK
 //#define DEBUG_Y_JOYSTICK 
 //#define DEBUG_GPS
-#define DEBUG_COMMS
+//#define DEBUG_COMMS
 //#define DEBUG_ENCODER
 /************************************************************************************************************************
 End Configurable Items
@@ -620,7 +620,7 @@ void communication(Stream &aSerial)
 
     String strInput = String(input);
     #ifdef DEBUG_COMMS
-      display.printFixed(0,  40, input, STYLE_NORMAL);
+      display.printFixed(0,  56, input, STYLE_NORMAL);
       Serial.println(input);
     #endif
 
@@ -830,15 +830,24 @@ void commsGetTelescopeInfo(Stream &aSerial){
       case 'C': //:GC# Get current date. Returns: MM/DD/YY# The current local calendar date for the telescope.
         //Get Telescope Local Date
         {
-          setTime(gps.time.hour(), gps.time.minute(), gps.time.second(), gps.date.day(), gps.date.month(), gps.date.year());
+          int adjustLocal = -1*((24 + myAstro.getGMT()) - myAstro.getLT())*3600;
+          //setTime(gps.time.hour(), gps.time.minute(), gps.time.second(), gps.date.day(), gps.date.month(), gps.date.year());
           if(myAstro.getLT() > myAstro.getGMT()){
-            adjustTime(-1*((24 + myAstro.getGMT()) - myAstro.getLT())*3600);
+            
+            adjustTime(adjustLocal);
           }
           char charDate[12];
           
           snprintf(charDate, 12, "%02d/%02d/%02d#", month(), day(), (year()-2000));
-                
+          #ifdef DEBUG_COMMS
+            Serial.println(charDate);
+          #endif
+
           aSerial.print(charDate);
+          if(myAstro.getLT() > myAstro.getGMT()){
+            adjustTime(-1* adjustLocal);
+          }
+
           break;
         }
       
@@ -848,23 +857,27 @@ void commsGetTelescopeInfo(Stream &aSerial){
 
       case 'D': //:GD# Get Telescope Declination. Returns: sDD*MM# or sDD*MM’SS# Depending upon the current precision setting for the telescope.
         {
-          setCurrentPositions();
-          
-          myAstro.setAltAz(currentAlt, currentAz);
-          myAstro.doAltAz2RAdec();
-          
-          float aDec = myAstro.getDeclinationDec();
+          char txDEC[11];
+          if(flat != 0 && flon != 0){
+            setCurrentPositions();
+
+            myAstro.setAltAz(currentAlt, currentAz);
+            myAstro.doAltAz2RAdec();
+            float aDec = myAstro.getDeclinationDec();
+            char decCase;
       
-          char decCase;
-      
-          if(aDec < 0){
-            decCase = 45;
+            if(aDec < 0){
+              decCase = 45;
+            }else{
+              decCase = 43;
+            }
+            snprintf(txDEC, 11, "%c%02d%c%02d:%02d#", decCase, getDecDeg(aDec), 223, getDecMM(aDec),getDecSS(aDec));
           }else{
-            decCase = 43;
+            snprintf(txDEC, 11, "%c%02d%c%02d:%02d#", 43, 0, 223, 0, 0);
           }
           
-          char txDEC[11];
-          snprintf(txDEC, 11, "%c%02d%c%02d:%02d#", decCase, getDecDeg(aDec), 223, getDecMM(aDec),getDecSS(aDec));
+          
+          
           aSerial.print(txDEC);
           break;
         }
@@ -880,7 +893,7 @@ void commsGetTelescopeInfo(Stream &aSerial){
         }
       case 'g': //:Gg# Get Current Site Longitude Returns: sDDD*MM# The current site Longitude. East Longitudes are expressed as negative
         {
-          float lon = gps.location.lng();
+          float lon = myAstro.getLongitude();
           
           int lonDeg = (int) lon;
           float lonMinutesRemainder = abs(lon - lonDeg) * 60;
@@ -890,6 +903,11 @@ void commsGetTelescopeInfo(Stream &aSerial){
 
           char charLon[20];
           snprintf(charLon, 20, "%03d*%02d#", lonDeg, lonMin);
+
+          #ifdef DEBUG_COMMS
+            Serial.println(charLon);
+          #endif
+
           aSerial.print(charLon);
           break;
         }
@@ -921,14 +939,20 @@ void commsGetTelescopeInfo(Stream &aSerial){
 
       case 'R': //:GR# Get Telescope RA Returns: HH:MM.T# or HH:MM:SS# Depending which precision is set for the telescope
         {
-          setCurrentPositions();
-          
-          myAstro.setAltAz(currentAlt, currentAz);
-          myAstro.doAltAz2RAdec();
-
-          float aRa = myAstro.getRAdec();
           char txRA[10];
-          snprintf(txRA, 10, "%02d:%02d:%02d#", getRaHH(aRa), getRaMM(aRa), getRaSS(aRa));
+          if(flat != 0 && flon != 0){
+            setCurrentPositions();
+          
+            myAstro.setAltAz(currentAlt, currentAz);
+            myAstro.doAltAz2RAdec();
+
+            float aRa = myAstro.getRAdec();
+            
+            snprintf(txRA, 10, "%02d:%02d:%02d#", getRaHH(aRa), getRaMM(aRa), getRaSS(aRa));
+            
+          }else{
+            snprintf(txRA, 10, "%02d:%02d:%02d#", 0, 0, 0);
+          }
           aSerial.print(txRA);
           break;
         }
@@ -952,7 +976,7 @@ void commsGetTelescopeInfo(Stream &aSerial){
       }
       case 't': //:Gt# Get Current Site Latitdue Returns: sDD*MM# The latitude of the current site. Positive inplies North latitude.
         {
-          float lat = gps.location.lat();
+          float lat = myAstro.getLatitude();
           
           int latDeg = (int) lat;
           float latMinutesRemainder = abs(lat-latDeg) * 60;
@@ -1087,12 +1111,30 @@ void commsSetCommands(Stream &aSerial,String strInput){
       inYear += 2000;
 
       setTime(inHour, inMinute, inSecond, inDay, inMonth, inYear);
-
+      
       adjustTime(inHourOffset * 3600);
 
       myAstro.setGMTdate(year(), month(), day());
       myAstro.setGMTtime(hour(), minute(), second());
       myAstro.useAutoDST();
+
+      #ifdef DEBUG_COMMS
+        Serial.print("Hour Offset: ");
+        Serial.println(inHourOffset);
+        Serial.print("Hour: ");
+        Serial.println(hour());
+        Serial.print("Minute: ");
+        Serial.println(minute());
+        Serial.print("Second: ");
+        Serial.println(second());
+
+        Serial.print("Year: ");
+        Serial.println(year());
+        Serial.print("Month: ");
+        Serial.println(month());
+        Serial.print("Day: ");
+        Serial.println(day());
+      #endif
 
       aSerial.print(1);
       aSerial.print("Updating Planetary Data# #");
@@ -1503,9 +1545,13 @@ void showInfo(){
   snprintf(charPrint, 20, "Sats: %d", sats);
   display.printFixed(0,24, charPrint, STYLE_NORMAL);
 
-  //Local Time
-  snprintf(charPrint, 20, "UTC Time: %02d:%02d", hour(), minute());
+  //Time
+  snprintf(charPrint, 20, "Date: %02d/%02d/%04d", month(), day(), year());
   display.printFixed(0,32, charPrint, STYLE_NORMAL);
+
+  //Date
+  snprintf(charPrint, 20, "Time: %02d:%02d", hour(), minute());
+  display.printFixed(0,40, charPrint, STYLE_NORMAL);
 }
 
 void infoScreensControl(){
