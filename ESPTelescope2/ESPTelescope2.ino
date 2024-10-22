@@ -15,8 +15,8 @@ Start Configurable Items
 *************************************************************************************************************************/
 #define MOUNT_NAME "StarMax90"                    //Name of the Mount - Bluetooth Name etc.
 #define FIRMWARE_VERSION "0.3"                     //Just for Informational Purposes
-#define FIRMWARE_DATE "SEP 26 2024"                //Just for Informational Purposes
-#define FIRMWARE_TIME "12:00:00"
+#define FIRMWARE_DATE "OCT 21 2024"                //Just for Informational Purposes
+#define FIRMWARE_TIME "22:15:00"
 
 //this is expecting the Alt and Az gearing to be the same.
 const int GEAR_RATIO = 15;                       //where 1 is no gearing (ex. 300 Tooth gear / 20 tooth gear = 15), 15 Telescope, 1 Binoc
@@ -631,6 +631,9 @@ void communication(Stream &aSerial)
       case 'D': //D - Distance Bars
         commsDistanceBars(aSerial);
         break;
+      case 'E': //E Commands Not supported
+        aSerial.print("#");
+        break;
       case 'F': //F – Focuser Control
         #ifdef HAS_FOCUSER
           commsFocuserControl(input[2]);
@@ -650,6 +653,9 @@ void communication(Stream &aSerial)
         break;
       case 'S': //S – Telescope Set Commands 
         commsSetCommands(aSerial, strInput);
+        break;
+      case 'U': //U - Precision Toggle
+        commsPrecisionToggle();
         break;
     }
 
@@ -753,7 +759,10 @@ void commsSyncControl(char input2, Stream &aSerial){
           break;        
       } 
       
-      aSerial.print(1);      
+      aSerial.print(1);  
+      #ifdef DEBUG_COMMS
+        Serial.println(1);
+      #endif    
     }
 }
 //D - Distance Bars
@@ -763,8 +772,14 @@ void commsDistanceBars(Stream &aSerial){
       LX200's – a string of bar characters indicating the distance. */
     
     if(slewComplete){
+      #ifdef DEBUG_COMMS
+        Serial.println("#");
+      #endif
       aSerial.print("#");
     }else{
+      #ifdef DEBUG_COMMS
+        Serial.println("-#");
+      #endif
       aSerial.print("-#");
     }
 }
@@ -822,6 +837,11 @@ void commsGetTelescopeInfo(Stream &aSerial){
           
         char txAlt[7];
         snprintf(txAlt, 7, "%c%02d%c%02d", decCase, getDecDeg(currentAlt), 223, getDecMM(currentAlt));
+
+        #ifdef DEBUG_COMMS
+          Serial.print(txAlt);
+          Serial.println("#");
+        #endif 
         aSerial.print(txAlt);
         aSerial.print("#");
         break;
@@ -853,6 +873,9 @@ void commsGetTelescopeInfo(Stream &aSerial){
       
       case 'c': //:Gc# Get Calendar Format Returns: 12# or 24# Depending on the current telescope format setting.
         aSerial.print("24#");
+        #ifdef DEBUG_COMMS
+          Serial.println("24#");
+        #endif 
         break;
 
       case 'D': //:GD# Get Telescope Declination. Returns: sDD*MM# or sDD*MM’SS# Depending upon the current precision setting for the telescope.
@@ -876,7 +899,9 @@ void commsGetTelescopeInfo(Stream &aSerial){
             snprintf(txDEC, 11, "%c%02d%c%02d:%02d#", 43, 0, 223, 0, 0);
           }
           
-          
+          #ifdef DEBUG_COMMS
+            Serial.println(txDEC);
+          #endif 
           
           aSerial.print(txDEC);
           break;
@@ -887,6 +912,11 @@ void commsGetTelescopeInfo(Stream &aSerial){
         setting in effect is factored into returned value. */
         {
           int calcOffset = (myAstro.getLT() < myAstro.getGMT()? myAstro.getGMT() : myAstro.getGMT() + 24) - myAstro.getLT();
+
+          #ifdef DEBUG_COMMS
+            Serial.print(calcOffset);
+            Serial.println("#");
+          #endif
           aSerial.print(calcOffset);
           aSerial.print("#");
           break;
@@ -915,24 +945,43 @@ void commsGetTelescopeInfo(Stream &aSerial){
         {
           char charDate[12];
           snprintf(charDate, 12, "%02d:%02d:%02d#", getRaHH(myAstro.getLT()), getRaMM(myAstro.getLT()), getRaSS(myAstro.getLT()));
-          aSerial.print(charDate);
+          #ifdef DEBUG_COMMS
+            Serial.println(charDate);
+          #endif
+          aSerial.print(charDate);          
           break;
         }
       case 'M': //:GM# Get Site 1 Name Returns: <string># A ‘#’ terminated string with the name of the requested site.
+        #ifdef DEBUG_COMMS
+          Serial.print(sites[0]);
+          Serial.println("#");
+        #endif 
         aSerial.print(sites[0]);
         aSerial.print("#");
         break;
 
       case 'N': //:GN# Get Site 2 Name Returns: <string>#  A ‘#’ terminated string with the name of the requested site.
+        #ifdef DEBUG_COMMS
+          Serial.print(sites[1]);
+          Serial.println("#");
+        #endif
         aSerial.print(sites[1]);
         aSerial.print("#");
         break;
 
       case 'O': //:GO# Get Site 3 Name Returns: <string># A ‘#’ terminated string with the name of the requested site.
+        #ifdef DEBUG_COMMS
+          Serial.print(sites[2]);
+          Serial.println("#");
+        #endif
         aSerial.print(sites[2]);
         aSerial.print("#");
         break;
       case 'P': //:GP# Get Site 4 Name Returns: <string># A ‘#’ terminated string with the name of the requested site.
+        #ifdef DEBUG_COMMS
+          Serial.print(sites[3]);
+          Serial.println("#");
+        #endif
         aSerial.print(sites[3]);
         aSerial.print("#");
         break;
@@ -953,6 +1002,10 @@ void commsGetTelescopeInfo(Stream &aSerial){
           }else{
             snprintf(txRA, 10, "%02d:%02d:%02d#", 0, 0, 0);
           }
+
+          #ifdef DEBUG_COMMS
+            Serial.println(txRA);
+          #endif
           aSerial.print(txRA);
           break;
         }
@@ -961,6 +1014,9 @@ void commsGetTelescopeInfo(Stream &aSerial){
                     The size of the largest object returned by the FIND command expressed in arcminutes.
                 */
       {
+        #ifdef DEBUG_COMMS
+            Serial.println("190'#");
+          #endif
         aSerial.print("190'#"); //M31 size
         break;
       }
@@ -970,8 +1026,12 @@ void commsGetTelescopeInfo(Stream &aSerial){
                       would produce 1 revolution of the telescope in 24 hours.*/
       {
           double trackingRate = 2.5* 3600 * (((realXSpeed * rotationDegrees) / GEAR_RATIO) /stepperDivider);
+          #ifdef DEBUG_COMMS
+            Serial.print(trackingRate, 1);
+            Serial.println("#");
+          #endif
           aSerial.print(trackingRate, 1);
-          aSerial.print('#');
+          aSerial.print("#");
           break;
       }
       case 't': //:Gt# Get Current Site Latitdue Returns: sDD*MM# The latitude of the current site. Positive inplies North latitude.
@@ -984,44 +1044,82 @@ void commsGetTelescopeInfo(Stream &aSerial){
 
           char charLat[20];
           snprintf(charLat, 20, "%02d*%02d#", latDeg, latMin);
+
+          #ifdef DEBUG_COMMS
+            Serial.println(charLat);
+          #endif
           aSerial.print(charLat);
           break;
         }
       case 'V': //Telescope Info
         switch(input[3]){
           case 'D': //:GVD# Get Telescope Firmware Date Returns: mmm dd yyyy#
+            #ifdef DEBUG_COMMS
+              Serial.print(FIRMWARE_DATE);
+              Serial.println("#");
+            #endif
             aSerial.print(FIRMWARE_DATE);
             aSerial.print("#");
             break;
           case 'N': //:GVN# Get Telescope Firmware Number Returns: dd.d# 
+            #ifdef DEBUG_COMMS
+              Serial.print(FIRMWARE_VERSION);
+              Serial.println("#");
+            #endif
             aSerial.print(FIRMWARE_VERSION);
             aSerial.print("#");
             break;
           case 'P': //:GVP# Get Telescope Product Name Returns: <string># 
+            #ifdef DEBUG_COMMS
+              Serial.print(MOUNT_NAME);
+              Serial.println("#");
+            #endif
             aSerial.print(MOUNT_NAME);
             aSerial.print("#");
             break;
           case 'T': //:GVT# Get Telescope Firmware Time returns: HH:MM:SS#
+            #ifdef DEBUG_COMMS
+              Serial.print(FIRMWARE_TIME);
+              Serial.println("#");
+            #endif
             aSerial.print(FIRMWARE_TIME);
             aSerial.print("#");
         }
         break;
       case 'W': //Get Track State
         {
+          #ifdef DEBUG_COMMS
+            Serial.print("A");
+          #endif
           aSerial.print("A");
       
           if(isTracking){
+            #ifdef DEBUG_COMMS
+              Serial.print("T");
+            #endif
             aSerial.print("T");
           }else{
+            #ifdef DEBUG_COMMS
+              Serial.print("N");
+            #endif
             aSerial.print("N");
           }
 
           if(synced){
+            #ifdef DEBUG_COMMS
+              Serial.print("1");
+            #endif
             aSerial.print("1");
           }else{
+            #ifdef DEBUG_COMMS
+              Serial.print("0");
+            #endif
             aSerial.print("0");
           }
 
+          #ifdef DEBUG_COMMS
+            Serial.println("#");
+          #endif
           aSerial.print("#");
         break;
         }
@@ -1032,6 +1130,9 @@ void commsGetTelescopeInfo(Stream &aSerial){
       {
         char txAz[7];
         snprintf(txAz, 7, "%03d%c%02d", getDecDeg(currentAz), 223, getDecMM(currentAz));
+        #ifdef DEBUG_COMMS
+          Serial.println(txAz);
+        #endif
         aSerial.print(txAz);
         aSerial.print("#");
         break;
@@ -1073,6 +1174,10 @@ void commsMovement(Stream &aSerial){
       
       startSlew();
       
+      #ifdef DEBUG_COMMS
+          Serial.println(1);
+        #endif
+
       aSerial.print(1);
       break;
   }
@@ -1281,6 +1386,11 @@ void commsSetCommands(Stream &aSerial,String strInput){
     }
 
   }
+}
+
+//U - Precision Toggle not needed at the moment
+void commsPrecisionToggle(){
+
 }
 
 void startSlew(){
