@@ -645,7 +645,10 @@ void serialCommunication(byte inByte, int inComm)
   
   static unsigned int input_pos = 0;    
   switch(inByte){
-    
+    case 0x06:
+        output[0] = 'A';
+        writeOutput(inComm);
+        break;
     case '#':
       serialInput[input_pos] = 0; //terminating null byte
   
@@ -729,6 +732,10 @@ void processCommunication(int inComm)
       case 'U': //U - Precision Toggle
         commsPrecisionToggle();
         break;
+    }
+
+    for(int i = 0; i < numChars; i++){
+      input[i] = '\0';
     }
 }
 
