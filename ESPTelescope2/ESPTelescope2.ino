@@ -75,12 +75,12 @@ uint8_t receiverAddress[] = {0xa0, 0xb7, 0x65, 0x64, 0x29, 0x7c};
 
 
 //uncomment to get debugging
-#define DEBUG
+//#define DEBUG
 //#define DEBUG_STEPS
 //#define DEBUG_X_JOYSTICK
 //#define DEBUG_Y_JOYSTICK 
 //#define DEBUG_GPS
-#define DEBUG_COMMS
+//#define DEBUG_COMMS
 //#define DEBUG_ENCODER
 /************************************************************************************************************************
 End Configurable Items
@@ -645,11 +645,7 @@ void serialCommunication(byte inByte, int inComm)
   
   static unsigned int input_pos = 0;    
   switch(inByte){
-    case 6:
-      
-      output[0] = 'A';
-      writeOutput(inComm);
-      break;
+    
     case '#':
       serialInput[input_pos] = 0; //terminating null byte
   
@@ -696,6 +692,10 @@ void processCommunication(int inComm)
     #endif
 
     switch (input[1]){
+      case 0x06:
+        output[0] = 'A';
+        writeOutput(inComm);
+        break;
       case 'C': //C - Sync Control
         commsSyncControl(input[2], inComm);
         break;
@@ -750,6 +750,9 @@ void writeOutput(int comOut){
       case 3:
         strcpy(espNowOut.message, output);
         esp_now_send(receiverAddress, (uint8_t *) &espNowOut, sizeof(espNowOut));
+        for(int i = 0; i < numChars; i++){
+          espNowOut.message[i] = '\0';
+        }
         break;
     }
     for(int i = 0; i < numChars; i++){

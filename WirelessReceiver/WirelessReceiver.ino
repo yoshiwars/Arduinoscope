@@ -17,6 +17,10 @@ Global Variables - These should not need to change based on devices
 *************************************************************************************************************************/
 const byte numChars = 32;
 
+char input[numChars];
+
+int retries = 0;
+
 esp_now_peer_info_t peerInfo;
 
 // Structure example to send data
@@ -67,9 +71,7 @@ void loop() {
   // put your main code here, to run repeatedly:
   while (Serial.available() > 0){
     communication(Serial.read());
-  }
-
-  
+  }  
 }
 
 
@@ -78,49 +80,73 @@ void communication(byte inByte)
   
   static unsigned int input_pos = 0;    
   switch(inByte){
-    case 6:
+    /*case 6:
       
       break;
+      */
     case '\r':   // discard line ends
       break;
     case '\n':
       break;
-    case '#':
+     case '#':
       
+      //terminator reached! process newdata
+      if(input_pos > 0){
+        newData = true;
+      }else{
+        break;
+      }
       
+      //reset buffer for next time
     default:
      // keep adding if not full ... allow for terminating null byte
     if (input_pos < (numChars - 1))
-      espNowOut.message[input_pos++] = inByte;
-    if(inByte == '#'){
-      espNowOut.message[input_pos++] = 0; //terminating null byte
-  
-      //terminator reached! process newdata
-      newData = true;
-      
-      //reset buffer for next time
-      input_pos = 0;
-    }
+      input[input_pos++] = inByte;
     break;
   }
   
   if(newData){
+    
+    input[input_pos] = 0; //terminating null byte
+    input_pos = 0; 
+    strcpy(espNowOut.message, input);
 
     esp_now_send(telescopeAddress, (uint8_t *) &espNowOut, sizeof(espNowOut));
-
     for(int i = 0; i < numChars; i++){
-      espNowOut.message[i] = '\0';
+      input[i] = '\0';
     }
     newData = false;
+  }else if(input_pos == numChars){
+    
+    #ifdef DEBUG_COMMS
+      Serial.print("Input Buffer Overrun: ");
+      Serial.print(input);
+    #endif
+    for(int i = 0; i < numChars; i++){
+      input[i] = '\0';
+    }
   }
 }
 
 // Callback when data is sent through ESPNow
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
   #ifdef DEBUG_COMMS
-    Serial.print("\r\nLast Packet Send Status:\t");
     Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
   #endif
+
+  if(status == ESP_NOW_SEND_SUCCESS){
+    for(int i = 0; i < numChars; i++){
+      espNowOut.message[i] = '\0';
+    }
+    retries = 0;
+  }else{
+    
+    if(retries < 3){
+      esp_now_send(telescopeAddress, (uint8_t *) &espNowOut, sizeof(espNowOut));
+    }
+    retries++;
+  }
+  
 }
 
 // Callback when data is received through ESPNow
@@ -130,7 +156,11 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
     Serial.println(len);
   #endif
   
+  
+  Serial.print(espNowIn.message);
+  
+
   for(int i = 0; i < numChars; i++){
-    Serial.print(espNowIn.message[i]);
-  }
+      espNowIn.message[i] = '\0';
+    }
 }
