@@ -7,18 +7,19 @@
 #include <TimeLib.h>
 #include "Preferences.h"
 #include <SiderealObjects.h>
-//#include <List.hpp>
 #include <ESP32Encoder.h>
+#include <esp_now.h>
+#include <WiFi.h>
 
 /************************************************************************************************************************
 Start Configurable Items 
 *************************************************************************************************************************/
 #define MOUNT_NAME "StarMax90"                    //Name of the Mount - Bluetooth Name etc.
 #define FIRMWARE_VERSION "0.3"                     //Just for Informational Purposes
-#define FIRMWARE_DATE "SEP 26 2024"                //Just for Informational Purposes
-#define FIRMWARE_TIME "12:00:00"
+#define FIRMWARE_DATE "NOV 05 2024"                //Just for Informational Purposes
+#define FIRMWARE_TIME "23:15:00"
 
-//this is expecting the Alt and Az gearing to be the same.
+//this is expecting the Alt and Az gearing to be the same. Will separate this at some point
 const int GEAR_RATIO = 15;                       //where 1 is no gearing (ex. 300 Tooth gear / 20 tooth gear = 15), 15 Telescope, 1 Binoc
 const double SINGLE_STEP_DEGREE =  360.0 / 200.0;    // the motor has 200 regular steps for 360 degrees (360 divided by 200 = 1.8)
 const double MOTOR_GEAR_BOX = 26 + (103.0/121.0);                 //where 1 is no gearing (26 + (103/121)) planetary gearbox version
@@ -69,6 +70,10 @@ const int LATCH_PIN = 19;                       //Pin connected to ST_CP of 74HC
 const int CLOCK_PIN = 18;                       //Pin connected to SH_CP of 74HC595
 const int DATA_PIN = 23;                         //Pin connected to DS of 74HC595
 
+//Receiver
+uint8_t receiverAddress[] = {0xa0, 0xb7, 0x65, 0x64, 0x29, 0x7c};
+
+
 //uncomment to get debugging
 //#define DEBUG
 //#define DEBUG_STEPS
@@ -84,6 +89,7 @@ End Configurable Items
 /************************************************************************************************************************
 Global Variables - These should not need to change based on devices
 *************************************************************************************************************************/
+
 BluetoothSerial btComm;       //Bluetooth Setup
 SiderealPlanets myAstro;      //Used for calculations
 SiderealObjects myObjects;    //Used for GoTo Functions
@@ -254,10 +260,26 @@ bool focusing = false;
 //communication
 const byte numChars = 32;
 char input[numChars];
+char serialInput[numChars];
+char output[numChars];
 const byte gpsNumChars = 80;
 char gpsData[gpsNumChars];
 bool newData = false;
+bool outData = false;
 bool synced = false;
+
+
+// Structure example to send data
+// Must match the receiver structure
+typedef struct struct_message {
+  char message[numChars];  
+} struct_message;
+
+// Create a struct_message called myData
+struct_message espNowOut;
+struct_message espNowIn;
+
+esp_now_peer_info_t peerInfo;
 
 //Sync Time Variables
 int inHourOffset;
@@ -331,6 +353,32 @@ void setup() {
       sites[i] = preferences.getString("site" + i).c_str();
     }
   }
+
+  // Set device as a Wi-Fi Station
+  WiFi.mode(WIFI_STA);
+
+  // Init ESP-NOW
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Error initializing ESP-NOW");
+    return;
+  }
+
+  // Once ESPNow is successfully Init, we will register for Send CB to
+  // get the status of Trasnmitted packet
+  esp_now_register_send_cb(OnDataSent);
+  
+  // Register peer
+  memcpy(peerInfo.peer_addr, receiverAddress, 6);
+  peerInfo.channel = 0;  
+  peerInfo.encrypt = false;
+  
+  // Add peer        
+  if (esp_now_add_peer(&peerInfo) != ESP_OK){
+    Serial.println("Failed to add peer");
+    return;
+  }
+  // Register for a callback function that will be called when data is received
+  esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
 
   #ifdef HAS_FOCUSER
     speedIndex = 2;
@@ -508,12 +556,12 @@ void loop() {
     doTrack();
   }
   
-  while (btComm.available() > 0){
-    communication(btComm);
-  }
-
   while (Serial.available() > 0){
-    communication(Serial);
+    serialCommunication(Serial.read(), 1);
+  }
+  
+  while (btComm.available() > 0){
+    serialCommunication(btComm.read(),2);
   }
 
   while(Serial2.available() > 0){
@@ -586,16 +634,23 @@ void accelerateMove(){
   yStepper.runSpeed();
 }
 
-void communication(Stream &aSerial)
+/*
+Communication Output
+1 - Serial
+2 - btComm
+3 - ESPNow
+*/
+void serialCommunication(byte inByte, int inComm)
 {
-  byte inByte = aSerial.read();
+  
   static unsigned int input_pos = 0;    
   switch(inByte){
-    case 6:
-      aSerial.print("A");
-      break;
+    case 0x06:
+        output[0] = 'A';
+        writeOutput(inComm);
+        break;
     case '#':
-      input[input_pos] = 0; //terminating null byte
+      serialInput[input_pos] = 0; //terminating null byte
   
       //terminator reached! process newdata
       newData = true;
@@ -612,24 +667,47 @@ void communication(Stream &aSerial)
     default:
      // keep adding if not full ... allow for terminating null byte
     if (input_pos < (numChars - 1))
-      input[input_pos++] = inByte;
+      serialInput[input_pos++] = inByte;
     break;
   }
   
   if(newData){
 
-    String strInput = String(input);
+    strcpy(input,serialInput);
+    processCommunication(inComm);
+
+    for(int i = 0; i < numChars; i++){
+      serialInput[i] = '\0';
+    }
+    newData = false;
+  }
+}
+
+void processCommunication(int inComm)
+{
+  String strInput = String(input);
     #ifdef DEBUG_COMMS
       display.printFixed(0,  56, input, STYLE_NORMAL);
+      Serial.print("CommType: ");
+      Serial.println(inComm);
+      Serial.print("Input: ");
       Serial.println(input);
     #endif
 
     switch (input[1]){
+      case 0x06:
+        output[0] = 'A';
+        writeOutput(inComm);
+        break;
       case 'C': //C - Sync Control
-        commsSyncControl(input[2], aSerial);
+        commsSyncControl(input[2], inComm);
         break;
       case 'D': //D - Distance Bars
-        commsDistanceBars(aSerial);
+        commsDistanceBars(inComm);
+        break;
+      case 'E': //E Commands Not supported
+        output[0] = '#';
+        writeOutput(inComm);
         break;
       case 'F': //F – Focuser Control
         #ifdef HAS_FOCUSER
@@ -637,10 +715,10 @@ void communication(Stream &aSerial)
           #endif
         break;
       case 'G': //G – Get Telescope Information
-        commsGetTelescopeInfo(aSerial);
+        commsGetTelescopeInfo(inComm);
         break;
       case 'M': //M – Telescope Movement Commands
-        commsMovement(aSerial);
+        commsMovement();
         break;
       case 'Q': //Q – Movement Commands - All Q commands should just stop the telescope.
         setTrack();
@@ -649,19 +727,49 @@ void communication(Stream &aSerial)
         commsSlewRate();
         break;
       case 'S': //S – Telescope Set Commands 
-        commsSetCommands(aSerial, strInput);
+        commsSetCommands(strInput, inComm);
+        break;
+      case 'U': //U - Precision Toggle
+        commsPrecisionToggle();
         break;
     }
 
     for(int i = 0; i < numChars; i++){
       input[i] = '\0';
     }
-    newData = false;
-  }
+}
+
+void writeOutput(int comOut){
+  #ifdef DEBUG_COMMS
+      Serial.print("ComOut: ");
+      Serial.println(comOut);
+      Serial.print("Output: ");
+      Serial.println(output);
+    #endif 
+
+    switch(comOut){
+      case 1:
+        Serial.print(output);
+        break;
+      case 2:
+        btComm.print(output);
+        break;
+      case 3:
+        strcpy(espNowOut.message, output);
+        esp_now_send(receiverAddress, (uint8_t *) &espNowOut, sizeof(espNowOut));
+        for(int i = 0; i < numChars; i++){
+          espNowOut.message[i] = '\0';
+        }
+        break;
+    }
+    for(int i = 0; i < numChars; i++){
+      output[i] = '\0';
+    }
+    outData = false;
 }
 
 //C - Sync Control
-void commsSyncControl(char input2, Stream &aSerial){
+void commsSyncControl(char input2, int inComm){
   /*:CM# Synchronizes the telescope's position with the currently selected database object's coordinates.
         Returns:
         LX200's - a "#" terminated string with the name of the object that was synced.
@@ -753,20 +861,28 @@ void commsSyncControl(char input2, Stream &aSerial){
           break;        
       } 
       
-      aSerial.print(1);      
+      output[0] = '1';
+      writeOutput(inComm);
+        
     }
 }
 //D - Distance Bars
-void commsDistanceBars(Stream &aSerial){
+void commsDistanceBars(int inComm){
   /*:D# Requests a string of bars indicating the distance to the current library object.
       Returns:
       LX200's – a string of bar characters indicating the distance. */
     
     if(slewComplete){
-      aSerial.print("#");
+      
+      output[0] = '#';
+      
     }else{
-      aSerial.print("-#");
+      
+      output[0] = '-';
+      output[1] = '#';
+      
     }
+    writeOutput(inComm);
 }
 
 //F – Focuser Control
@@ -805,7 +921,7 @@ void commsFocuserControl(char input2){
 #endif
 
 //G – Get Telescope Information
-void commsGetTelescopeInfo(Stream &aSerial){
+void commsGetTelescopeInfo(int inComm){
     
     switch(input[2]){
       case 'A': /*:GA# Get Telescope Altitude
@@ -819,11 +935,9 @@ void commsGetTelescopeInfo(Stream &aSerial){
         }else{
           decCase = 43;
         }
-          
-        char txAlt[7];
-        snprintf(txAlt, 7, "%c%02d%c%02d", decCase, getDecDeg(currentAlt), 223, getDecMM(currentAlt));
-        aSerial.print(txAlt);
-        aSerial.print("#");
+        
+        snprintf(output, numChars, "%c%02d%c%02d#", decCase, getDecDeg(currentAlt), 223, getDecMM(currentAlt));
+
         break;
       }
 
@@ -836,14 +950,9 @@ void commsGetTelescopeInfo(Stream &aSerial){
             
             adjustTime(adjustLocal);
           }
-          char charDate[12];
           
-          snprintf(charDate, 12, "%02d/%02d/%02d#", month(), day(), (year()-2000));
-          #ifdef DEBUG_COMMS
-            Serial.println(charDate);
-          #endif
-
-          aSerial.print(charDate);
+          snprintf(output, numChars, "%02d/%02d/%02d#", month(), day(), (year()-2000));
+                    
           if(myAstro.getLT() > myAstro.getGMT()){
             adjustTime(-1* adjustLocal);
           }
@@ -852,12 +961,14 @@ void commsGetTelescopeInfo(Stream &aSerial){
         }
       
       case 'c': //:Gc# Get Calendar Format Returns: 12# or 24# Depending on the current telescope format setting.
-        aSerial.print("24#");
+        
+        strcpy(output, "24#");
+        
         break;
 
       case 'D': //:GD# Get Telescope Declination. Returns: sDD*MM# or sDD*MM’SS# Depending upon the current precision setting for the telescope.
         {
-          char txDEC[11];
+          
           if(flat != 0 && flon != 0){
             setCurrentPositions();
 
@@ -871,14 +982,11 @@ void commsGetTelescopeInfo(Stream &aSerial){
             }else{
               decCase = 43;
             }
-            snprintf(txDEC, 11, "%c%02d%c%02d:%02d#", decCase, getDecDeg(aDec), 223, getDecMM(aDec),getDecSS(aDec));
+            snprintf(output, numChars, "%c%02d%c%02d:%02d#", decCase, getDecDeg(aDec), 223, getDecMM(aDec),getDecSS(aDec));
           }else{
-            snprintf(txDEC, 11, "%c%02d%c%02d:%02d#", 43, 0, 223, 0, 0);
+            snprintf(output, numChars, "%c%02d%c%02d:%02d#", 43, 0, 223, 0, 0);
           }
           
-          
-          
-          aSerial.print(txDEC);
           break;
         }
       case 'G': //:GG# Get UTC offset time Returns: sHH# or sHH.H#
@@ -887,8 +995,9 @@ void commsGetTelescopeInfo(Stream &aSerial){
         setting in effect is factored into returned value. */
         {
           int calcOffset = (myAstro.getLT() < myAstro.getGMT()? myAstro.getGMT() : myAstro.getGMT() + 24) - myAstro.getLT();
-          aSerial.print(calcOffset);
-          aSerial.print("#");
+          
+          snprintf(output, numChars, "%d#", calcOffset );
+          
           break;
         }
       case 'g': //:Gg# Get Current Site Longitude Returns: sDDD*MM# The current site Longitude. East Longitudes are expressed as negative
@@ -901,45 +1010,39 @@ void commsGetTelescopeInfo(Stream &aSerial){
 
           lonDeg *= -1;
 
-          char charLon[20];
-          snprintf(charLon, 20, "%03d*%02d#", lonDeg, lonMin);
+          snprintf(output, numChars, "%03d*%02d#", lonDeg, lonMin);
 
-          #ifdef DEBUG_COMMS
-            Serial.println(charLon);
-          #endif
-
-          aSerial.print(charLon);
           break;
         }
       case 'L': //:GL# Get Local Time in 24 hour format  Returns: HH:MM:SS#
         {
-          char charDate[12];
-          snprintf(charDate, 12, "%02d:%02d:%02d#", getRaHH(myAstro.getLT()), getRaMM(myAstro.getLT()), getRaSS(myAstro.getLT()));
-          aSerial.print(charDate);
+          
+          snprintf(output, numChars, "%02d:%02d:%02d#", getRaHH(myAstro.getLT()), getRaMM(myAstro.getLT()), getRaSS(myAstro.getLT()));
+                   
           break;
         }
       case 'M': //:GM# Get Site 1 Name Returns: <string># A ‘#’ terminated string with the name of the requested site.
-        aSerial.print(sites[0]);
-        aSerial.print("#");
+        
+        snprintf(output, numChars, "%s#",sites[0]);
         break;
 
       case 'N': //:GN# Get Site 2 Name Returns: <string>#  A ‘#’ terminated string with the name of the requested site.
-        aSerial.print(sites[1]);
-        aSerial.print("#");
+        
+        snprintf(output, numChars, "%s#",sites[1]);
         break;
 
       case 'O': //:GO# Get Site 3 Name Returns: <string># A ‘#’ terminated string with the name of the requested site.
-        aSerial.print(sites[2]);
-        aSerial.print("#");
+        
+        snprintf(output, numChars, "%s#",sites[2]);
         break;
       case 'P': //:GP# Get Site 4 Name Returns: <string># A ‘#’ terminated string with the name of the requested site.
-        aSerial.print(sites[3]);
-        aSerial.print("#");
+        
+        snprintf(output, numChars, "%s#",sites[3]);
         break;
 
       case 'R': //:GR# Get Telescope RA Returns: HH:MM.T# or HH:MM:SS# Depending which precision is set for the telescope
         {
-          char txRA[10];
+          
           if(flat != 0 && flon != 0){
             setCurrentPositions();
           
@@ -948,12 +1051,12 @@ void commsGetTelescopeInfo(Stream &aSerial){
 
             float aRa = myAstro.getRAdec();
             
-            snprintf(txRA, 10, "%02d:%02d:%02d#", getRaHH(aRa), getRaMM(aRa), getRaSS(aRa));
+            snprintf(output, numChars, "%02d:%02d:%02d#", getRaHH(aRa), getRaMM(aRa), getRaSS(aRa));
             
           }else{
-            snprintf(txRA, 10, "%02d:%02d:%02d#", 0, 0, 0);
+            snprintf(output, numChars, "%02d:%02d:%02d#", 0, 0, 0);
           }
-          aSerial.print(txRA);
+          
           break;
         }
       case 's': /*Get Smaller Size Limit
@@ -961,7 +1064,8 @@ void commsGetTelescopeInfo(Stream &aSerial){
                     The size of the largest object returned by the FIND command expressed in arcminutes.
                 */
       {
-        aSerial.print("190'#"); //M31 size
+        
+        strcpy(output, "190'#"); //M31 size
         break;
       }
       case 'T': /*:GT# Get tracking rate
@@ -970,8 +1074,9 @@ void commsGetTelescopeInfo(Stream &aSerial){
                       would produce 1 revolution of the telescope in 24 hours.*/
       {
           double trackingRate = 2.5* 3600 * (((realXSpeed * rotationDegrees) / GEAR_RATIO) /stepperDivider);
-          aSerial.print(trackingRate, 1);
-          aSerial.print('#');
+          
+          snprintf(output, numChars, "%.1f#", trackingRate);
+
           break;
       }
       case 't': //:Gt# Get Current Site Latitdue Returns: sDD*MM# The latitude of the current site. Positive inplies North latitude.
@@ -982,47 +1087,50 @@ void commsGetTelescopeInfo(Stream &aSerial){
           float latMinutesRemainder = abs(lat-latDeg) * 60;
           int latMin = (int)latMinutesRemainder;
 
-          char charLat[20];
-          snprintf(charLat, 20, "%02d*%02d#", latDeg, latMin);
-          aSerial.print(charLat);
+          snprintf(output, numChars, "%02d*%02d#", latDeg, latMin);
+
           break;
         }
       case 'V': //Telescope Info
         switch(input[3]){
           case 'D': //:GVD# Get Telescope Firmware Date Returns: mmm dd yyyy#
-            aSerial.print(FIRMWARE_DATE);
-            aSerial.print("#");
+            
+            snprintf(output, numChars, "%s#",FIRMWARE_DATE);
+            
             break;
           case 'N': //:GVN# Get Telescope Firmware Number Returns: dd.d# 
-            aSerial.print(FIRMWARE_VERSION);
-            aSerial.print("#");
+            
+            snprintf(output, numChars, "%s#",FIRMWARE_VERSION);
+           
             break;
           case 'P': //:GVP# Get Telescope Product Name Returns: <string># 
-            aSerial.print(MOUNT_NAME);
-            aSerial.print("#");
+            
+            snprintf(output, numChars, "%s#",MOUNT_NAME);
+            
             break;
           case 'T': //:GVT# Get Telescope Firmware Time returns: HH:MM:SS#
-            aSerial.print(FIRMWARE_TIME);
-            aSerial.print("#");
+            
+            snprintf(output, numChars, "%s#",FIRMWARE_TIME);
+            
         }
         break;
       case 'W': //Get Track State
         {
-          aSerial.print("A");
+          
+          output[0] = 'A';
       
           if(isTracking){
-            aSerial.print("T");
+            output[1] = 'T';
           }else{
-            aSerial.print("N");
+            output[1] = 'N';
           }
 
           if(synced){
-            aSerial.print("1");
+            output[2] = '1';
           }else{
-            aSerial.print("0");
+            output[2] = '0';
           }
-
-          aSerial.print("#");
+          output[3] = '#';
         break;
         }
       case 'Z': /* :GZ# Get telescope azimuth
@@ -1030,17 +1138,18 @@ void commsGetTelescopeInfo(Stream &aSerial){
                     The current telescope Azimuth depending on the selected precision. 
                 */
       {
-        char txAz[7];
-        snprintf(txAz, 7, "%03d%c%02d", getDecDeg(currentAz), 223, getDecMM(currentAz));
-        aSerial.print(txAz);
-        aSerial.print("#");
+        
+        
+        snprintf(output, 8, "%03d%c%02d#", getDecDeg(currentAz), 223, getDecMM(currentAz));
+        
         break;
       }
     }
+    writeOutput(inComm);
 }
 
 //M – Telescope Movement Commands
-void commsMovement(Stream &aSerial){
+void commsMovement(){
   isTracking = false;
   switch (input[2]){
     case 'e': //:Me# Move Telescope East at current slew rate Returns: Nothing
@@ -1073,7 +1182,8 @@ void commsMovement(Stream &aSerial){
       
       startSlew();
       
-      aSerial.print(1);
+      outData = true;
+      output[0] = '1';
       break;
   }
 }
@@ -1097,7 +1207,7 @@ void commsSlewRate(){
 }
 
 //S – Telescope Set Commands 
-void commsSetCommands(Stream &aSerial,String strInput){
+void commsSetCommands(String strInput, int inComm){
   int siteID = 0;
   switch(input[2]){ /*:SCMM/DD/YY#
                       Change Handbox Date to MM/DD/YY
@@ -1136,8 +1246,8 @@ void commsSetCommands(Stream &aSerial,String strInput){
         Serial.println(day());
       #endif
 
-      aSerial.print(1);
-      aSerial.print("Updating Planetary Data# #");
+      strcpy(output, "1Updating Planetary Data# #");
+      
       break;
     }
     case 'd': { /*:SdsDD*MM#
@@ -1154,7 +1264,7 @@ void commsSetCommands(Stream &aSerial,String strInput){
       decMM = strInput.substring(7,9).toInt();
       decSS = strInput.substring(10,12).toInt();
       
-      aSerial.print(1);
+      output[0] = '1';
       break;
     }
     case 'G': {  /*:SGsHH.H#
@@ -1163,7 +1273,9 @@ void commsSetCommands(Stream &aSerial,String strInput){
                   0 – Invalid
                   1 - Valid */
       inHourOffset = strInput.substring(3,7).toInt();
-      aSerial.print(1);
+      
+      output[0] = '1';
+      
       break;
     }
     case 'g': { /*:SgDDD*MM#
@@ -1183,7 +1295,8 @@ void commsSetCommands(Stream &aSerial,String strInput){
        if(flon != 0 && flat != 0){
           myAstro.setLatLong((double)flat, (double)flon);
        }
-      aSerial.print(1);
+      
+      output[0] = '1';
       break;
     }
     case 'L': { /*:SLHH:MM:SS#
@@ -1195,7 +1308,7 @@ void commsSetCommands(Stream &aSerial,String strInput){
       inMinute = strInput.substring(6,8).toInt();
       inSecond = strInput.substring(9).toInt();
       
-      aSerial.print(1);
+      output[0] = '1';
       break;
     }
     case 'P': //:SP<string># Site 4
@@ -1213,7 +1326,7 @@ void commsSetCommands(Stream &aSerial,String strInput){
       sites[siteID] = strInput.substring(3,strInput.indexOf("#")).c_str();
       preferences.putString("site" + siteID, sites[siteID]);
 
-      aSerial.print(1);
+      output[0] = '1';
       break;
     case 'r':{ /*:SrHH:MM.T#
                   :SrHH:MM:SS#
@@ -1224,8 +1337,8 @@ void commsSetCommands(Stream &aSerial,String strInput){
       raHH = strInput.substring(3,5).toInt();
       raMM = strInput.substring(6,8).toInt();
       raSS = strInput.substring(9).toInt();
-            
-      aSerial.print(1);
+      
+      output[0] = '1';
       break;
     }
     case 'S':/*:SSHH:MM:SS#
@@ -1235,7 +1348,8 @@ void commsSetCommands(Stream &aSerial,String strInput){
           1 - Valid */
     {
       //this gets calculated so just send a valid
-      aSerial.print(1);
+      
+      output[0] = '1';
       break;
     }
     case 's':{ /*:SsNNN#
@@ -1243,7 +1357,8 @@ void commsSetCommands(Stream &aSerial,String strInput){
                   Returns:
                   0 – Invalid
                   1 - Valid*/
-              aSerial.print(1);
+              
+              output[0] = '1';
               break;
     }
     case 't': { /*:StsDD*MM#
@@ -1266,7 +1381,7 @@ void commsSetCommands(Stream &aSerial,String strInput){
         myAstro.setLatLong((double)flat, (double)flon);
       }
             
-      aSerial.print(1);
+      output[0] = '1';
       break;
     }
     case 'w': /*:SwN#
@@ -1276,11 +1391,18 @@ void commsSetCommands(Stream &aSerial,String strInput){
                 1 - Valid */
     {
       //just return 1 for now
-      aSerial.print(1);
+      output[0] = '1';
       break;
     }
 
   }
+  
+  writeOutput(inComm);
+}
+
+//U - Precision Toggle not needed at the moment
+void commsPrecisionToggle(){
+
 }
 
 void startSlew(){
@@ -1654,18 +1776,18 @@ void showOffsetsMenu(){
 void showGotoMenu(){
   screenMode = 6;
   display.clear();
-  char output[16];
-  strcpy(output, "Planet: ");
-  strcat(output, planets[planetObject]);
-  gotoMenuItems[1] = output;
+  char dispOutput[16];
+  strcpy(dispOutput, "Planet: ");
+  strcat(dispOutput, planets[planetObject]);
+  gotoMenuItems[1] = dispOutput;
 
-  char output2[16];
-  snprintf(output2, 16, "Messier: M%u", messierObject);
-  gotoMenuItems[2] = output2;
+  char dispOutput2[16];
+  snprintf(dispOutput2, 16, "Messier: M%u", messierObject);
+  gotoMenuItems[2] = dispOutput2;
   
-  char output3[16];
-  snprintf(output3, 16, "Caldwell: %u", caldwellObject);
-  gotoMenuItems[3] = output3;
+  char dispOutput3[16];
+  snprintf(dispOutput3, 16, "Caldwell: %u", caldwellObject);
+  gotoMenuItems[3] = dispOutput3;
   
   gotoMenu.show(display); 
 }
@@ -2574,6 +2696,25 @@ double azDifference(double az1, double az2){
     difference = az2 - az1;
   }
   return difference;
+}
+
+// Callback when data is sent through ESPNow
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+  #ifdef DEBUG_COMMS
+      Serial.print("\r\nLast Packet Send Status:\t");
+      Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+    #endif
+}
+
+// Callback when data is received through ESPNow
+void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
+  memcpy(&espNowIn, incomingData, sizeof(espNowIn));
+  #ifdef DEBUG_COMMS
+    Serial.println(espNowIn.message);
+  #endif
+  strcpy(input,espNowIn.message);
+  processCommunication(3);
+  
 }
 
 
