@@ -14,7 +14,7 @@
 /************************************************************************************************************************
 Start Configurable Items 
 *************************************************************************************************************************/
-#define MOUNT_NAME "StarMax90"                    //Name of the Mount - Bluetooth Name etc.
+#define MOUNT_NAME "StarMax90_2"                    //Name of the Mount - Bluetooth Name etc.
 #define FIRMWARE_VERSION "0.3"                     //Just for Informational Purposes
 #define FIRMWARE_DATE "NOV 05 2024"                //Just for Informational Purposes
 #define FIRMWARE_TIME "23:15:00"
@@ -2555,6 +2555,49 @@ void setTrack(){
   }
 }
 
+void doTrack() {
+  static unsigned long lastTrack = 0;
+  const float SIDEREAL_RATE = 15.041 / 3600.0; // Degrees per second
+  const float TRACK_INTERVAL = 100; // 100ms
+
+  if (millis() - lastTrack >= TRACK_INTERVAL) {
+    setCurrentPositions();
+
+    // Get current RA/Dec from Alt/Az
+    myAstro.setAltAz(currentAlt, currentAz);
+    myAstro.doAltAz2RAdec();
+    float currentRA = myAstro.getRAdec();
+    float currentDec = myAstro.getDeclinationDec();
+
+    // Advance time slightly to compute rate
+    adjustTime(TRACK_INTERVAL / 1000.0 * 3600); // Convert ms to hours
+    myAstro.setRAdec(currentRA + SIDEREAL_RATE * (TRACK_INTERVAL / 1000.0), currentDec); // Move RA sidereally
+    myAstro.doRAdec2AltAz();
+    float nextAlt = myAstro.getAltitude();
+    float nextAz = myAstro.getAzimuth();
+
+    // Compute rates (degrees per second)
+    float azRate = azDifference(currentAz, nextAz) / (TRACK_INTERVAL / 1000.0);
+    float altRate = (nextAlt - currentAlt) / (TRACK_INTERVAL / 1000.0);
+
+    // Rewind time
+    adjustTime(-TRACK_INTERVAL / 1000.0 * 3600);
+
+    // Error correction
+    float azError = azDifference(targetAz, currentAz);
+    float altError = targetAlt - currentAlt;
+    azRate += azError * 0.05; // Lower gain for smoother tracking
+    altRate += altError * 0.05;
+
+    // Apply to motors
+    setXSpeed(-azRate * stepperDivider * GEAR_RATIO / rotationDegrees);
+    setYSpeed(-altRate * stepperDivider * GEAR_RATIO / rotationDegrees);
+
+    lastTrack = millis();
+  }
+}
+
+/*
 void doTrack(){
   static long lastTrack = 0;
 
@@ -2611,6 +2654,7 @@ void doTrack(){
     lastTrack = millis();
   }
 }
+*/
 
 void setXSpeed(float inSpeed){
   xSpeed = inSpeed;
